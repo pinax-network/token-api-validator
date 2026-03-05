@@ -1,0 +1,33 @@
+{
+    "private": true,
+    "name": "token-api-validator",
+    "description": "Validation service for Token API data accuracy tracking",
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "type": "module",
+    "scripts": {
+        "dev": "bun --watch src/index.ts",
+        "start": "bun src/index.ts",
+        "build": "bun build --compile src/index.ts --outfile token-api-validator",
+        "fetch-tokens": "bun scripts/fetch-tokens.ts",
+        "init-db": "bun scripts/init-db.ts",
+        "typecheck": "tsc --noEmit",
+        "fix": "biome check --write --unsafe",
+        "lint": "bun run typecheck && biome check ."
+    },
+    "dependencies": {
+        "@clickhouse/client-web": "^1.12.0",
+        "@pinax/graph-networks-registry": "^0.7.1",
+        "croner": "^9.0.0",
+        "dotenv": "^17.2.1",
+        "hono": "^4.8.12",
+        "prom-client": "^15.1.0",
+        "tslog": "^4.9.3",
+        "zod": "^4.0.15"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.1.4",
+        "@types/bun": "^1.2.19",
+        "typescript": "^5.9.2"
+    }
+}

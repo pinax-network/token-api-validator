@@ -1,0 +1,71 @@
+import { Hono } from 'hono';
+import { config } from './config.js';
+import { logger } from './logger.js';
+import { register } from './metrics.js';
+import { syncRegistry } from './registry.js';
+import { startScheduler } from './scheduler.js';
+import { getLatestRun, ping as pingClickHouse } from './storage/clickhouse.js';
+import { getProgress, isRunning, runValidation } from './validator.js';
+
+const app = new Hono();
+
+app.get('/health', (c) => c.json({ status: 'ok' }));
+
+app.get('/metrics', async (c) => {
+    c.header('Content-Type', register.contentType);
+    return c.text(await register.metrics());
+});
+
+app.post('/trigger', async (c) => {
+    if (isRunning()) {
+        return c.json({ error: 'Validation run already in progress' }, 409);
+    }
+
+    const runId = crypto.randomUUID();
+    logger.info(`Manual trigger received, starting run ${runId}`);
+
+    runValidation('manual', runId).catch((err) => {
+        logger.error(`Manual run ${runId} failed:`, err);
+    });
+
+    return c.json({ run_id: runId, status: 'started' }, 202);
+});
+
+app.get('/status', async (c) => {
+    try {
+        const latestRun = await getLatestRun();
+        return c.json({
+            running: isRunning(),
+            progress: getProgress(),
+            latest_run: latestRun,
+        });
+    } catch (error) {
+        logger.error('Failed to fetch status:', error);
+        return c.json(
+            { running: isRunning(), progress: getProgress(), latest_run: null, error: 'Failed to query ClickHouse' },
+            500
+        );
+    }
+});
+
+app.notFound((c) => c.json({ error: `Not found: ${c.req.method} ${c.req.path}` }, 404));
+
+if (await pingClickHouse()) {
+    logger.info('ClickHouse connection OK');
+} else {
+    logger.error(`ClickHouse is not reachable at ${config.clickhouseUrl}`);
+}
+
+logger.info('Syncing network registry...');
+await syncRegistry();
+
+logger.info('Starting scheduler...');
+startScheduler();
+
+logger.info(`Starting HTTP server on ${config.hostname}:${config.port}`);
+
+export default {
+    ...app,
+    port: config.port,
+    hostname: config.hostname,
+};
