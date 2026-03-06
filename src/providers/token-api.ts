@@ -30,10 +30,7 @@ export class TokenApiProvider {
 
     async fetch(network: string, contract: string): Promise<TokenApiResult> {
         const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
-        const headers: Record<string, string> = {};
-        if (config.tokenApiJwt) {
-            headers.Authorization = `Bearer ${config.tokenApiJwt}`;
-        }
+        const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
         const start = Date.now();
         const response = await withRetry(

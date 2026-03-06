@@ -9,7 +9,7 @@ const configSchema = z.object({
     clickhousePassword: z.string(),
     clickhouseDatabase: z.string().default('validation'),
     tokenApiBaseUrl: z.string().url(),
-    tokenApiJwt: z.string().optional(),
+    tokenApiJwt: z.string().min(1),
     etherscanApiKey: z.string().optional(),
     cronSchedule: z.string().default('0 */6 * * *'),
     rateLimitMs: z.coerce.number().default(500),
