@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 const configSchema = z.object({
     port: z.coerce.number().default(3000),
-    hostname: z.string().default('0.0.0.0'),
     clickhouseUrl: z.string().url(),
     clickhouseUsername: z.string(),
     clickhousePassword: z.string(),
@@ -23,7 +22,6 @@ export type Config = z.infer<typeof configSchema>;
 
 export const config = configSchema.parse({
     port: process.env.PORT,
-    hostname: process.env.HOSTNAME,
     clickhouseUrl: process.env.CLICKHOUSE_URL,
     clickhouseUsername: process.env.CLICKHOUSE_USERNAME,
     clickhousePassword: process.env.CLICKHOUSE_PASSWORD,

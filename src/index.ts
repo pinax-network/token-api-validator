@@ -62,10 +62,10 @@ await syncRegistry();
 logger.info('Starting scheduler...');
 startScheduler();
 
-logger.info(`Starting HTTP server on ${config.hostname}:${config.port}`);
+logger.info(`Starting HTTP server on 0.0.0.0:${config.port}`);
 
 export default {
     ...app,
     port: config.port,
-    hostname: config.hostname,
+    hostname: '0.0.0.0',
 };

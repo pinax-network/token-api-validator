@@ -51,7 +51,6 @@ bun run dev
 | `RETRY_MAX_ATTEMPTS` | No | `3` | Max retry attempts for failed requests |
 | `RETRY_BASE_DELAY_MS` | No | `1000` | Base delay for exponential backoff (ms) |
 | `PORT` | No | `3000` | HTTP server port |
-| `HOSTNAME` | No | `0.0.0.0` | HTTP server bind address |
 | `VERBOSE` | No | `true` | Enable verbose logging |
 | `PRETTY_LOGGING` | No | `false` | Pretty-print log output |
 
