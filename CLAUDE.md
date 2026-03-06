@@ -22,6 +22,10 @@ bun run fetch-tokens     # refresh tokens.json from CoinGecko (needs COINGECKO_A
 bun run init-db          # create ClickHouse tables (interactive, needs CH credentials)
 ```
 
+## Versioning
+
+Use `bun pm version <major|minor|patch>` to bump the version — it updates `package.json` and creates a git tag in one step. Push the tag with `git push --tags` after.
+
 ## Architecture
 
 - `src/index.ts` — Hono HTTP server + scheduler startup
