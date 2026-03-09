@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import { emptyMetadata, httpStatusToNullReason, type ProviderResult } from './types.js';
+import { allFieldsNull, emptyMetadata, httpStatusToNullReason, type ProviderResult } from './types.js';
 
 interface BlockscoutTokenResponse {
     symbol: string;
@@ -37,31 +37,36 @@ export class BlockscoutProvider {
             response_time_ms: responseTimeMs,
             url,
             provider: 'blockscout',
-            null_reason: null,
+            null_reasons: {},
         };
 
         if (!response.ok) {
             providerRequests.inc({ provider: 'blockscout', network, status: 'error' });
             logger.warn(`Blockscout returned ${response.status} for ${network}:${contract}`);
-            result.null_reason = httpStatusToNullReason(response.status);
+            result.null_reasons = allFieldsNull(httpStatusToNullReason(response.status));
             return result;
         }
 
-        providerRequests.inc({ provider: 'blockscout', network, status: 'success' });
         const body = await response.json();
         const token = (body as { result?: BlockscoutTokenResponse }).result;
 
         if (!token) {
+            providerRequests.inc({ provider: 'blockscout', network, status: 'error' });
             logger.warn(`Blockscout returned no result for ${network}:${contract}`);
-            result.null_reason = 'empty';
+            result.null_reasons = allFieldsNull('empty');
             return result;
         }
 
+        providerRequests.inc({ provider: 'blockscout', network, status: 'success' });
         result.data = {
             symbol: token.symbol ?? null,
             decimals: token.decimals != null ? Number(token.decimals) : null,
             total_supply: token.totalSupply ?? null,
         };
+
+        if (result.data.symbol == null) result.null_reasons.symbol = 'empty';
+        if (result.data.decimals == null) result.null_reasons.decimals = 'empty';
+        if (result.data.total_supply == null) result.null_reasons.total_supply = 'empty';
 
         return result;
     }

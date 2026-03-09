@@ -29,11 +29,13 @@ The 1% tolerance for `total_supply` was chosen as a pragmatic baseline — tight
 
 ### Reference providers
 
-| Provider | Kind | API key required | Fields available |
-|----------|------|-----------------|-----------------|
-| Blockscout | Free | No | symbol, decimals, total_supply |
-| Etherscan (free tier) | Free | Yes (free registration) | total_supply only |
-| Etherscan (Pro) | Paid | Yes | symbol, decimals, total_supply, holders, transfers |
+| Provider | API key required | Fields available |
+|----------|-----------------|-----------------|
+| Blockscout | No | symbol, decimals, total_supply |
+| Etherscan V2 (free tier) | Yes (free registration) | total_supply |
+| Etherscan V2 (Pro) | Yes (paid) | symbol, decimals, total_supply |
+
+Etherscan's Pro endpoint (`token/tokeninfo`) returns all fields and is tried first. If it fails (e.g. `paid_plan_required` without a Pro plan), the free endpoint (`stats/tokensupply`) provides total supply only. The Pro error reason is recorded per-field on decimals and symbol, so coverage metrics accurately reflect the gap rather than silently dropping those fields.
 
 Explorer URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). All available explorers are queried per network (see [Reference provider selection](#reference-provider-selection)).
 
@@ -107,19 +109,19 @@ When either our API or the reference provider returns `null` for a field:
 
 ### Null reasons
 
-Each comparison records why a value is null via `our_null_reason` and `reference_null_reason`:
+Null reasons are tracked **per-field**, not per-request. Each comparison row has `our_null_reason` and `reference_null_reason` that reflect why that specific field is null. This matters because a single provider response may succeed for some fields and fail for others (e.g., Etherscan free tier returns `total_supply` but not `decimals` or `symbol`).
 
 | Value | Meaning |
 |-------|---------|
-| `empty` | Provider returned 200 OK but no data for this token |
-| `not_found` | HTTP 404 |
-| `forbidden` | HTTP 403 |
-| `timeout` | HTTP 504 or request timeout |
-| `rate_limited` | HTTP 429 or Etherscan rate limit error (after all retry attempts exhausted) |
-| `paid_plan_required` | Etherscan V2: chain requires a paid API plan |
-| `server_error` | Other HTTP 5xx or unexpected errors |
+| `empty` | Provider responded successfully but returned no data for this field |
+| `not_found` | Token not found on this provider |
+| `forbidden` | Authentication failure |
+| `timeout` | Request timed out |
+| `rate_limited` | Rate limit exceeded (after retry attempts exhausted) |
+| `paid_plan_required` | Field requires a paid API plan |
+| `server_error` | Unexpected provider error |
 
-Both columns are null when the comparison succeeded (both sides returned data).
+Both columns are null when the field comparison succeeded (both sides returned data).
 
 ## Data normalization
 
@@ -167,6 +169,6 @@ Null comparisons (where either side returned no data) are excluded from regressi
 
 1. **Sample-based**: Only validates tokens derived from the top 500 coins by global market cap. Accuracy for long-tail tokens may differ.
 2. **Timing differences**: Our API and the reference provider are queried moments apart. For rapidly changing fields (like `total_supply` during high activity), small differences are expected.
-3. **Free tier constraints**: Etherscan free tier excludes certain chains (BSC, Base, Optimism, Avalanche); those chains still get Blockscout comparisons where available. Blockscout is free with no key required.
+3. **Free tier constraints**: Etherscan free tier only provides total supply; symbol and decimals require a paid plan. Some chains are excluded entirely on the free tier (e.g., BSC). Blockscout is free and provides all fields where available.
 4. **Normalization coupling**: The validator assumes specific data formats from our API (e.g., how `total_supply` is scaled). If our API changes its representation, the validator may need updating — but it will surface this change as an accuracy drop.
 5. **Sustained threshold cold start**: The ≥3/5 sustained mismatch detection requires at least 3 runs of history. Early runs may show inflated regression counts as tokens first enter the sustained zone.

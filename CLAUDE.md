@@ -41,19 +41,19 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/scheduler.ts` — croner-based cron scheduling
 - `src/utils/retry.ts` — Shared retry with exponential backoff
 - `src/utils/normalize.ts` — String normalization + total supply scaling (raw integer → human-readable)
-- `src/providers/types.ts` — Shared interfaces (`TokenMetadata`, `ProviderResult`, etc.) + `emptyMetadata()`, `httpStatusToNullReason()`
+- `src/providers/types.ts` — Shared interfaces (`TokenMetadata`, `ProviderResult`, `NullReason`, etc.) + `emptyMetadata()`, `allFieldsNull()`, `httpStatusToNullReason()`
 - `tokens.json` — Reference token list (generated, committed)
 - `scripts/` — One-off scripts (not part of runtime)
 
 ## Key conventions
 
 - Tolerances are defined in `src/comparator.ts` as `Record<keyof TokenMetadata, FieldTolerance>`. Adding a field to `TokenMetadata` requires a corresponding tolerance entry (enforced at compile time). `name` is intentionally excluded — see `docs/methodology.md` for rationale.
-- Null values are excluded from accuracy metrics but tracked for coverage. See `isNullComparison()` in comparator. Null reasons (`our_null_reason`, `reference_null_reason`) are stored per comparison for debugging — see `docs/methodology.md`. The `runs` table stores `nulls` alongside `matches` and `mismatches` so that `matches + mismatches + nulls = comparisons`.
+- Null values are excluded from accuracy metrics but tracked for coverage. See `isNullComparison()` in comparator. Null reasons (`our_null_reason`, `reference_null_reason`) are tracked **per-field** — a provider may succeed for some fields and fail for others (e.g., Etherscan free tier returns total_supply but not decimals/symbol). The `NullReason` type in `src/providers/types.ts` enumerates all valid values. The `runs` table stores `nulls` alongside `matches` and `mismatches` so that `matches + mismatches + nulls = comparisons`.
 - `total_supply` is stored as string for big number precision, compared numerically with relative tolerance. Our API field is `circulating_supply` (misnamed, represents total supply). Reference providers return raw unscaled integers — normalization to human-readable happens in the comparator via `scaleDown()`.
 - Blockscout URLs and chain IDs are discovered via The Graph Network Registry (`@pinax/graph-networks-registry`), with hardcoded defaults as fallback. Etherscan uses the V2 unified endpoint (`api.etherscan.io/v2/api?chainid=...`) with a single API key across all chains.
 - The `provider` column in comparisons records the actual reference provider used (`blockscout` or `etherscan`), not a generic name. Request URLs are stored in `our_url` and `reference_url` for reproducibility.
 - `TOKEN_API_JWT` is a bearer JWT, not an API key.
-- Etherscan V2 error parsing in `src/providers/etherscan.ts` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying `parseEtherscanError()`.
+- Etherscan V2 tries `token/tokeninfo` (Pro) first for all fields; on failure (e.g. `paid_plan_required`), falls back to `stats/tokensupply` (free) for total_supply only. Error parsing in `parseEtherscanError()` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying it.
 - All available reference providers are queried per network (not just a preferred one). Token API is fetched once per token; reference provider fetches are parallel within a token (Blockscout and Etherscan are independent services). Rate limiting is per-network (sequential within network, parallel across networks). HTTP 429 responses are retried with exponential backoff via `withRetry`'s `shouldRetry` predicate. On exhaustion, the response is returned (not thrown), so the provider's normal error handling maps it to `null_reason: 'rate_limited'`. Network errors (socket failures, DNS) still throw on exhaustion and surface as run-level errors.
 
 ## Methodology documentation

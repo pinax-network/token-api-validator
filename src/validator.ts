@@ -5,7 +5,7 @@ import { runDuration, runsTotal, tokensChecked } from './metrics.js';
 import { BlockscoutProvider } from './providers/blockscout.js';
 import { EtherscanProvider } from './providers/etherscan.js';
 import { TokenApiProvider, type TokenApiResult } from './providers/token-api.js';
-import type { ProviderResult, TokenReference } from './providers/types.js';
+import type { ProviderResult, TokenMetadata, TokenReference } from './providers/types.js';
 import { getAvailableProviders, syncRegistry } from './registry.js';
 import { type ComparisonRecord, insertComparisons, insertRun, type RunRecord } from './storage/clickhouse.js';
 
@@ -68,6 +68,7 @@ async function validateToken(
             const refResult = settled.value;
             const results = compare(ourResult.data, refResult.data);
             for (const r of results) {
+                const field = r.field as keyof TokenMetadata;
                 allComparisons.push({
                     run_id: runId,
                     run_at: runAt,
@@ -88,8 +89,8 @@ async function validateToken(
                         : null,
                     our_url: ourResult.url,
                     reference_url: refResult.url,
-                    our_null_reason: ourResult.null_reason,
-                    reference_null_reason: refResult.null_reason,
+                    our_null_reason: ourResult.null_reasons[field] ?? null,
+                    reference_null_reason: refResult.null_reasons[field] ?? null,
                 });
             }
         }

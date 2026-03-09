@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import { emptyMetadata, httpStatusToNullReason, type ProviderResult } from './types.js';
+import { allFieldsNull, emptyMetadata, httpStatusToNullReason, type ProviderResult } from './types.js';
 
 interface TokenApiResponse {
     data: Array<{
@@ -51,27 +51,28 @@ export class TokenApiProvider {
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
-            null_reason: null,
+            null_reasons: {},
             block_timestamp: null,
         };
 
         if (!response.ok) {
             providerRequests.inc({ provider: 'token-api', network, status: 'error' });
             logger.warn(`Token API returned ${response.status} for ${network}:${contract}`);
-            result.null_reason = httpStatusToNullReason(response.status);
+            result.null_reasons = allFieldsNull(httpStatusToNullReason(response.status));
             return result;
         }
 
         const body = (await response.json()) as TokenApiResponse;
         const token = body.data?.[0];
 
-        providerRequests.inc({ provider: 'token-api', network, status: 'success' });
-
         if (!token) {
+            providerRequests.inc({ provider: 'token-api', network, status: 'error' });
             logger.warn(`Token API returned empty data for ${network}:${contract}`);
-            result.null_reason = 'empty';
+            result.null_reasons = allFieldsNull('empty');
             return result;
         }
+
+        providerRequests.inc({ provider: 'token-api', network, status: 'success' });
 
         result.data = {
             symbol: token.symbol ?? null,
@@ -80,6 +81,10 @@ export class TokenApiProvider {
             total_supply: token.circulating_supply != null ? String(token.circulating_supply) : null,
         };
         result.block_timestamp = token.last_update_timestamp ? new Date(token.last_update_timestamp * 1000) : null;
+
+        if (result.data.symbol == null) result.null_reasons.symbol = 'empty';
+        if (result.data.decimals == null) result.null_reasons.decimals = 'empty';
+        if (result.data.total_supply == null) result.null_reasons.total_supply = 'empty';
 
         return result;
     }
