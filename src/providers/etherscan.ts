@@ -32,6 +32,7 @@ interface TokenInfoEntry {
  *
  * Known error result strings (https://docs.etherscan.io/resources/common-error-messages):
  *   "Max rate limit reached"
+ *   "Max calls per sec rate limit reached (N/sec)"
  *   "Invalid API Key"
  *   "Too many invalid api key attempts, please try again later"
  *   "Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage."
@@ -45,7 +46,7 @@ interface TokenInfoEntry {
  */
 function parseEtherscanError(result: string): NullReason {
     const lower = result.toLowerCase();
-    if (lower.startsWith('max rate limit reached')) return 'rate_limited';
+    if (lower.includes('rate limit reached')) return 'rate_limited';
     if (lower.startsWith('free api access is not supported')) return 'paid_plan_required';
     if (lower.includes('api pro endpoint')) return 'paid_plan_required';
     if (lower.startsWith('invalid api key') || lower.startsWith('too many invalid api key')) return 'forbidden';
@@ -160,7 +161,7 @@ export class EtherscanProvider {
                         (body.status !== '1' &&
                             String(body.result ?? '')
                                 .toLowerCase()
-                                .startsWith('max rate limit reached')),
+                                .includes('rate limit reached')),
                 },
                 label
             );
