@@ -105,12 +105,95 @@ export async function insertComparisons(records: ComparisonRecord[]): Promise<vo
     }
 }
 
-export async function getLatestRun(): Promise<RunRecord | null> {
-    const result = await client.query({
+/** Row from the run_metrics view. */
+interface RunMetrics {
+    run_at: string;
+    matches: number;
+    mismatches: number;
+    nulls: number;
+    comparable: number;
+    accuracy: number | null;
+    adjusted_accuracy: number | null;
+    coverage: number | null;
+    total_comparisons: number;
+}
+
+/** Row from the regression_status view. */
+interface RegressionRow {
+    network: string;
+    contract: string;
+    symbol: string;
+    field: string;
+    provider: string;
+    our_value: string | null;
+    reference_value: string | null;
+    relative_diff: number | null;
+    tolerance: number;
+    our_url: string;
+    reference_url: string;
+}
+
+/** Mismatch row from comparison_enriched (non-regression mismatches). */
+interface MismatchRow {
+    network: string;
+    contract: string;
+    symbol: string;
+    field: string;
+    provider: string;
+    our_value: string | null;
+    reference_value: string | null;
+    relative_diff: number | null;
+    tolerance: number;
+    our_null_reason: string | null;
+    reference_null_reason: string | null;
+}
+
+export interface Report {
+    run: RunRecord;
+    metrics: RunMetrics;
+    regressions: RegressionRow[];
+    mismatches: MismatchRow[];
+}
+
+export async function getReport(): Promise<Report | null> {
+    const runResult = await client.query({
         query: 'SELECT * FROM runs ORDER BY started_at DESC LIMIT 1',
         format: 'JSONEachRow',
     });
+    const runs = await runResult.json<RunRecord>();
+    const run = runs[0];
+    if (!run) return null;
 
-    const rows = await result.json<RunRecord>();
-    return rows[0] ?? null;
+    const metricsResult = await client.query({
+        query: `SELECT * FROM run_metrics WHERE run_at = (SELECT max(run_at) FROM run_metrics)`,
+        format: 'JSONEachRow',
+    });
+    const metricsRows = await metricsResult.json<RunMetrics>();
+    const metrics = metricsRows[0];
+    if (!metrics) return null;
+
+    const regressionsResult = await client.query({
+        query: `SELECT network, contract, symbol, field, provider,
+                    our_value, reference_value, relative_diff, tolerance,
+                    our_url, reference_url
+                FROM regression_status
+                WHERE run_at = (SELECT max(run_at) FROM regression_status) AND is_regression
+                ORDER BY network, symbol, field, provider`,
+        format: 'JSONEachRow',
+    });
+    const regressions = await regressionsResult.json<RegressionRow>();
+
+    const mismatchesResult = await client.query({
+        query: `SELECT network, contract, symbol, field, provider,
+                    our_value, reference_value, relative_diff, tolerance,
+                    our_null_reason, reference_null_reason
+                FROM comparison_enriched
+                WHERE run_at = (SELECT max(run_at) FROM comparison_enriched)
+                    AND is_comparable AND NOT is_match
+                ORDER BY network, symbol, field, provider`,
+        format: 'JSONEachRow',
+    });
+    const mismatches = await mismatchesResult.json<MismatchRow>();
+
+    return { run, metrics, regressions, mismatches };
 }

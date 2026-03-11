@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 import { register } from './metrics.js';
 import { syncRegistry } from './registry.js';
 import { startScheduler } from './scheduler.js';
-import { getLatestRun, ping as pingClickHouse } from './storage/clickhouse.js';
+import { getReport, ping as pingClickHouse } from './storage/clickhouse.js';
 import { getProgress, isRunning, runValidation } from './validator.js';
 
 const app = new Hono();
@@ -31,20 +31,18 @@ app.post('/trigger', async (c) => {
     return c.json({ run_id: runId, status: 'started' }, 202);
 });
 
-app.get('/status', async (c) => {
+app.get('/status', (c) => {
+    return c.json({ running: isRunning(), progress: getProgress() });
+});
+
+app.get('/report', async (c) => {
     try {
-        const latestRun = await getLatestRun();
-        return c.json({
-            running: isRunning(),
-            progress: getProgress(),
-            latest_run: latestRun,
-        });
+        const report = await getReport();
+        if (!report) return c.json({ error: 'No completed runs found' }, 404);
+        return c.json(report);
     } catch (error) {
-        logger.error('Failed to fetch status:', error);
-        return c.json(
-            { running: isRunning(), progress: getProgress(), latest_run: null, error: 'Failed to query ClickHouse' },
-            500
-        );
+        logger.error('Failed to generate report:', error);
+        return c.json({ error: 'Failed to query ClickHouse' }, 500);
     }
 });
 
