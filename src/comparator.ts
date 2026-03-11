@@ -119,7 +119,14 @@ export function compare(ours: TokenMetadata, reference: TokenMetadata): Comparis
     return results;
 }
 
-/** Check if either side of a comparison was null (missing data, not a real mismatch). */
-export function isNullComparison(result: ComparisonResult): boolean {
-    return result.our_value == null || result.reference_value == null;
+/** Check if a comparison should be excluded from accuracy due to a provider error. */
+export function isNullComparison(result: {
+    our_null_reason: string | null;
+    reference_null_reason: string | null;
+}): boolean {
+    return isErrorNullReason(result.our_null_reason) || isErrorNullReason(result.reference_null_reason);
+}
+
+function isErrorNullReason(reason: string | null): boolean {
+    return reason != null && reason !== 'empty';
 }

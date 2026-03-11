@@ -63,6 +63,9 @@ bun run dev
 | `validator_tokens_checked_total` | Counter | `network` | Tokens checked across runs |
 | `validator_provider_requests_total` | Counter | `provider`, `network`, `status` | Provider API requests |
 | `validator_provider_request_duration_seconds` | Histogram | `provider` | Provider request duration |
+| `validator_provider_batch_requests_total` | Counter | `provider`, `network`, `status` | Batch API requests |
+| `validator_provider_batch_fallbacks_total` | Counter | `provider`, `network` | Batch requests that fell back to individual fetches |
+| `validator_provider_batch_size` | Histogram | `provider`, `network` | Number of items per batch request |
 | `validator_clickhouse_writes_total` | Counter | `status` | ClickHouse write operations |
 
 Default process metrics (memory, CPU, event loop lag) are also exported.
@@ -94,7 +97,7 @@ CREATE TABLE validation.runs (
     comparisons    UInt32                              COMMENT 'Total per-field comparison records produced',
     matches        UInt32                              COMMENT 'Comparisons where values matched within tolerance',
     mismatches     UInt32                              COMMENT 'Comparisons where values differed beyond tolerance',
-    nulls          UInt32                              COMMENT 'Comparisons where one or both sides returned null',
+    nulls          UInt32                              COMMENT 'Comparisons excluded from accuracy due to provider errors',
     errors         UInt32                              COMMENT 'Tokens that failed to validate (fetch or compare error)',
     status         Enum('success', 'partial', 'failed') COMMENT 'Overall run outcome',
     error_detail   Nullable(String)                    COMMENT 'Error description when status is partial or failed'

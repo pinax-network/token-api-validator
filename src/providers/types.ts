@@ -9,9 +9,9 @@ export function emptyMetadata(): TokenMetadata {
     return { symbol: null, decimals: null, total_supply: null };
 }
 
-/** Why a value is null — either the provider request failed or the field isn't supported. */
+/** Why a field value is null. */
 export type NullReason =
-    | 'empty' // Provider responded successfully but returned no data (e.g. missing token in Blockscout)
+    | 'empty' // Provider responded successfully but returned no data — still compared for accuracy
     | 'not_found' // HTTP 404
     | 'forbidden' // HTTP 403 or invalid API key
     | 'rate_limited' // HTTP 429 or explicit rate limit error

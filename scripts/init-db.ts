@@ -88,7 +88,7 @@ async function main() {
 						comparisons    UInt32    COMMENT 'Total per-field comparison records produced',
 						matches        UInt32    COMMENT 'Comparisons where values matched within tolerance',
 						mismatches     UInt32    COMMENT 'Comparisons where values differed beyond tolerance',
-						nulls          UInt32    COMMENT 'Comparisons where one or both sides returned null',
+						nulls          UInt32    COMMENT 'Comparisons excluded from accuracy due to provider errors',
 						errors         UInt32    COMMENT 'Tokens that failed to validate (fetch or compare error)',
 						status         Enum('success', 'partial', 'failed') COMMENT 'Overall run outcome',
 						error_detail   Nullable(String) COMMENT 'Error description when status is partial or failed'
