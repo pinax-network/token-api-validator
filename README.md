@@ -4,7 +4,8 @@ Validation service that tracks the accuracy of [Token API](https://token-api.the
 
 Runs on a schedule, stores results in ClickHouse, and exposes Prometheus metrics for Grafana dashboards.
 
-> **Methodology**: See [docs/methodology.md](docs/methodology.md) for detailed documentation on what is compared, tolerance thresholds, accuracy/coverage metrics, and known limitations.
+> [!NOTE]
+> See [docs/methodology.md](docs/methodology.md) for detailed documentation on what is compared, tolerance thresholds, accuracy/coverage metrics, and known limitations.
 
 ## Quick Start
 
