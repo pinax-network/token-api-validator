@@ -39,6 +39,28 @@ export const providerDuration = new Histogram({
     registers: [register],
 });
 
+export const batchRequests = new Counter({
+    name: 'validator_provider_batch_requests_total',
+    help: 'Total batch API requests',
+    labelNames: ['provider', 'network', 'status'] as const,
+    registers: [register],
+});
+
+export const batchFallbacks = new Counter({
+    name: 'validator_provider_batch_fallbacks_total',
+    help: 'Total batch requests that fell back to individual fetches',
+    labelNames: ['provider', 'network'] as const,
+    registers: [register],
+});
+
+export const batchSize = new Histogram({
+    name: 'validator_provider_batch_size',
+    help: 'Number of items per batch request',
+    labelNames: ['provider', 'network'] as const,
+    buckets: [2, 5, 10, 25, 50, 75, 100],
+    registers: [register],
+});
+
 export const clickhouseWrites = new Counter({
     name: 'validator_clickhouse_writes_total',
     help: 'Total ClickHouse write operations',

@@ -46,17 +46,15 @@ interface TokenResult {
     error: boolean;
 }
 
-/** Fetch metadata from Token API once and compare against all reference providers. */
+/** Compare a pre-fetched Token API result against all reference providers. */
 async function validateToken(
     token: TokenReference,
-    tokenApi: TokenApiProvider,
+    ourResult: TokenApiResult,
     references: ReferenceProvider[],
     runId: string,
     runAt: string
 ): Promise<TokenResult> {
     try {
-        const ourResult = await tokenApi.fetch(token.network, token.contract);
-
         const refResults = await Promise.allSettled(references.map((ref) => ref.fetch(token.network, token.contract)));
 
         const allComparisons: ComparisonRecord[] = [];
@@ -84,9 +82,7 @@ async function validateToken(
                     tolerance: r.tolerance,
                     our_fetched_at: formatDateTime(ourResult.fetched_at),
                     reference_fetched_at: formatDateTime(refResult.fetched_at),
-                    our_block_timestamp: (ourResult as TokenApiResult).block_timestamp
-                        ? formatDateTime((ourResult as TokenApiResult).block_timestamp as Date)
-                        : null,
+                    our_block_timestamp: ourResult.block_timestamp ? formatDateTime(ourResult.block_timestamp) : null,
                     our_url: ourResult.url,
                     reference_url: refResult.url,
                     our_null_reason: ourResult.null_reasons[field] ?? null,
@@ -102,7 +98,7 @@ async function validateToken(
     }
 }
 
-/** Validate all tokens on a single network sequentially, rate-limiting between each. */
+/** Validate all tokens on a single network: batch-fetch from Token API, then compare each against references. */
 async function validateNetwork(
     tokens: TokenReference[],
     tokenApi: TokenApiProvider,
@@ -110,12 +106,17 @@ async function validateNetwork(
     runId: string,
     runAt: string
 ): Promise<{ comparisons: ComparisonRecord[]; errors: number }> {
+    // Batch-fetch all Token API results for this network
+    const contracts = tokens.map((t) => t.contract);
+    const ourResults = await tokenApi.fetchBatch((tokens[0] as TokenReference).network, contracts);
+
     const allComparisons: ComparisonRecord[] = [];
     let errors = 0;
 
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i] as TokenReference;
-        const result = await validateToken(token, tokenApi, references, runId, runAt);
+        const ourResult = ourResults.get(token.contract.toLowerCase()) as TokenApiResult;
+        const result = await validateToken(token, ourResult, references, runId, runAt);
         allComparisons.push(...result.comparisons);
         if (result.error) errors++;
 
@@ -130,7 +131,7 @@ async function validateNetwork(
             }
         }
 
-        // Rate limit between tokens (not after the last one)
+        // Rate limit between tokens for reference providers (not after the last one)
         if (i < tokens.length - 1) {
             await sleep(config.rateLimitMs);
         }
