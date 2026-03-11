@@ -35,6 +35,82 @@ bun run dev
 | `/report` | GET | Latest run report (metrics, regressions, mismatches) |
 | `/metrics` | GET | Prometheus metrics |
 
+## Report
+
+`GET /report` returns a JSON object with four sections describing the latest validation run:
+
+- **`run`** — Run summary: ID, timestamps, trigger type (`scheduled`/`manual`), status, and totals (tokens checked, comparisons, matches, mismatches, nulls, errors).
+- **`metrics`** — Aggregate quality metrics: accuracy, adjusted accuracy (fresh data only), coverage, and the underlying counts. See [methodology](docs/methodology.md) for definitions.
+- **`regressions`** — Active regressions: comparisons that are currently in a sustained mismatch state. Each entry includes network, contract, symbol, field, provider, both values, relative diff, tolerance, and source URLs for reproducibility.
+- **`mismatches`** — Current-run mismatches (non-regression): comparable fields that didn't match in the latest run. Includes null reasons when one side returned no data.
+
+Returns `404` if no completed runs exist.
+
+<details>
+<summary>Example response</summary>
+
+```json
+{
+  "run": {
+    "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "started_at": "2026-03-11T12:00:00.000Z",
+    "completed_at": "2026-03-11T12:05:32.000Z",
+    "trigger": "scheduled",
+    "tokens_checked": 743,
+    "comparisons": 3660,
+    "matches": 3412,
+    "mismatches": 123,
+    "nulls": 125,
+    "errors": 0,
+    "status": "success",
+    "error_detail": null
+  },
+  "metrics": {
+    "run_at": "2026-03-11T12:00:00.000Z",
+    "matches": 3412,
+    "mismatches": 123,
+    "nulls": 125,
+    "comparable": 3535,
+    "accuracy": 0.9652,
+    "adjusted_accuracy": 0.9891,
+    "coverage": 0.9658,
+    "total_comparisons": 3660
+  },
+  "regressions": [
+    {
+      "network": "mainnet",
+      "contract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "symbol": "USDT",
+      "field": "total_supply",
+      "provider": "blockscout",
+      "our_value": "96119620139.51",
+      "reference_value": "96118349783.47",
+      "relative_diff": 0.0000132,
+      "tolerance": 0.01,
+      "our_url": "https://token-api.thegraph.com/...",
+      "reference_url": "https://eth.blockscout.com/api/v2/tokens/0xdac..."
+    }
+  ],
+  "mismatches": [
+    {
+      "network": "bsc",
+      "contract": "0x55d398326f99059ff775485246999027b3197955",
+      "symbol": "USDT",
+      "field": "total_supply",
+      "provider": "etherscan",
+      "our_value": "2030000000.00",
+      "reference_value": null,
+      "relative_diff": null,
+      "tolerance": 0.01,
+      "our_null_reason": null,
+      "reference_null_reason": "empty"
+    }
+  ]
+}
+```
+
+</details>
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
