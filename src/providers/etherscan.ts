@@ -143,6 +143,8 @@ export class EtherscanProvider {
     /** Etherscan V2 API call with retry, error handling, and metrics. */
     private async callApi(network: string, params: Record<string, string>): Promise<ApiResult> {
         const url = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(params)}`;
+        const { apikey: _, ...storedParams } = params;
+        const storedUrl = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(storedParams)}`;
         const label = `etherscan:${params.action}:${network}`;
 
         try {
@@ -170,20 +172,20 @@ export class EtherscanProvider {
             if (!res.ok) {
                 logger.warn(`${label}: HTTP ${res.status}`);
                 providerRequests.inc({ provider: 'etherscan', network, status: 'error' });
-                return { ok: false, reason: httpStatusToNullReason(res.status), url };
+                return { ok: false, reason: httpStatusToNullReason(res.status), url: storedUrl };
             }
 
             if (body.status !== '1') {
                 logger.warn(`${label}: ${body.result}`);
                 providerRequests.inc({ provider: 'etherscan', network, status: 'error' });
-                return { ok: false, reason: parseEtherscanError(String(body.result ?? '')), url };
+                return { ok: false, reason: parseEtherscanError(String(body.result ?? '')), url: storedUrl };
             }
 
             providerRequests.inc({ provider: 'etherscan', network, status: 'success' });
-            return { ok: true, data: body, url };
+            return { ok: true, data: body, url: storedUrl };
         } catch (error) {
             logger.warn(`${label}: ${error}`);
-            return { ok: false, reason: 'server_error', url };
+            return { ok: false, reason: 'server_error', url: storedUrl };
         }
     }
 }
