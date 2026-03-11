@@ -18,7 +18,7 @@ cp .env.example .env
 # Generate reference token list (requires COINGECKO_API_KEY)
 bun run fetch-tokens
 
-# Create ClickHouse tables
+# Create ClickHouse tables and views
 bun run init-db
 
 # Start the service
@@ -31,7 +31,8 @@ bun run dev
 |-------|--------|-------------|
 | `/health` | GET | Liveness check |
 | `/trigger` | POST | Trigger manual validation run |
-| `/status` | GET | Latest run summary |
+| `/status` | GET | Current run status and progress |
+| `/report` | GET | Latest run report (metrics, regressions, mismatches) |
 | `/metrics` | GET | Prometheus metrics |
 
 ## Environment Variables
@@ -70,70 +71,76 @@ bun run dev
 
 Default process metrics (memory, CPU, event loop lag) are also exported.
 
-## ClickHouse Setup
+## ClickHouse Schema
 
-The service requires a ClickHouse database and user. Required grants:
+Schema is defined in `schema/*.sql` and applied with `bun run init-db` (idempotent — safe to run repeatedly).
 
-```sql
--- Runtime (INSERT comparisons/runs, SELECT for /status endpoint)
-GRANT INSERT, SELECT ON validation.* TO validator;
+```mermaid
+erDiagram
+    runs {
+        String run_id PK
+        DateTime started_at
+        DateTime completed_at
+        Enum trigger "scheduled | manual"
+        UInt32 tokens_checked
+        UInt32 comparisons
+        UInt32 matches
+        UInt32 mismatches
+        UInt32 nulls
+        UInt32 errors
+        Enum status "success | partial | failed"
+        String error_detail
+    }
 
--- Table management (init-db.ts script: CREATE/DROP tables)
-GRANT CREATE TABLE, DROP TABLE ON validation.* TO validator;
-GRANT TABLE ENGINE ON MergeTree TO validator;
+    comparisons {
+        String run_id FK
+        DateTime run_at
+        String network
+        String contract
+        String symbol
+        String field
+        String our_value
+        String reference_value
+        String provider
+        Float64 relative_diff
+        Bool is_match
+        Float64 tolerance
+        DateTime our_fetched_at
+        DateTime reference_fetched_at
+        DateTime our_block_timestamp
+        String our_url
+        String reference_url
+        String our_null_reason
+        String reference_null_reason
+    }
+
+    comparison_enriched {
+        Bool is_comparable "both sides have data"
+        Bool is_fresh "indexed within 5 min"
+    }
+
+    run_metrics {
+        DateTime run_at
+        Float64 accuracy
+        Float64 adjusted_accuracy
+        Float64 coverage
+    }
+
+    regression_status {
+        Bool is_regression "exact mismatch or sustained relative"
+    }
+
+    runs ||--o{ comparisons : "run_id"
+    comparisons ||--|| comparison_enriched : "view"
+    comparison_enriched ||--o{ run_metrics : "aggregates by run_at"
+    comparison_enriched ||--|| regression_status : "view with windowing"
 ```
 
-### Table Schemas
-
-Both tables use `MergeTree` engine with a configurable TTL (default 180 days). Run `bun run init-db` to create them.
-
-```sql
-CREATE TABLE validation.runs (
-    run_id         String                              COMMENT 'Unique UUID for this validation run',
-    started_at     DateTime                            COMMENT 'When the run began',
-    completed_at   Nullable(DateTime)                  COMMENT 'When the run finished (null if still running)',
-    trigger        Enum('scheduled', 'manual')         COMMENT 'What initiated the run',
-    tokens_checked UInt32                              COMMENT 'Number of tokens successfully validated',
-    comparisons    UInt32                              COMMENT 'Total per-field comparison records produced',
-    matches        UInt32                              COMMENT 'Comparisons where values matched within tolerance',
-    mismatches     UInt32                              COMMENT 'Comparisons where values differed beyond tolerance',
-    nulls          UInt32                              COMMENT 'Comparisons excluded from accuracy due to provider errors',
-    errors         UInt32                              COMMENT 'Tokens that failed to validate (fetch or compare error)',
-    status         Enum('success', 'partial', 'failed') COMMENT 'Overall run outcome',
-    error_detail   Nullable(String)                    COMMENT 'Error description when status is partial or failed'
-) ENGINE = ReplicatedMergeTree()
-ORDER BY started_at
-TTL started_at + INTERVAL 180 DAY
--- Invariant: matches + mismatches + nulls = comparisons
-
-CREATE TABLE validation.comparisons (
-    run_id                String              COMMENT 'References runs.run_id',
-    run_at                DateTime            COMMENT 'When the parent run started',
-    network               String              COMMENT 'Network ID (e.g. mainnet, bsc)',
-    contract              String              COMMENT 'Token contract address',
-    symbol                String              COMMENT 'Token symbol from tokens.json',
-    field                 String              COMMENT 'Metadata field compared (decimals, symbol, total_supply)',
-    our_value             Nullable(String)    COMMENT 'Value from our Token API',
-    reference_value       Nullable(String)    COMMENT 'Value from the reference provider',
-    provider              String              COMMENT 'Reference source used (blockscout or etherscan)',
-    relative_diff         Nullable(Float64)   COMMENT 'Relative difference for numeric fields (null for exact)',
-    is_match              Bool                COMMENT 'Whether values matched within configured tolerance',
-    tolerance             Float64             COMMENT 'Tolerance threshold applied (0 for exact, e.g. 0.01 for 1%)',
-    our_fetched_at        DateTime            COMMENT 'When our API was queried',
-    reference_fetched_at  DateTime            COMMENT 'When the reference provider was queried',
-    our_block_timestamp   Nullable(DateTime)  COMMENT 'Last indexed block timestamp from our API (for freshness)',
-    our_url               String              COMMENT 'Full request URL used for our API query',
-    reference_url         String              COMMENT 'Full request URL used for the reference query',
-    our_null_reason       Nullable(String)    COMMENT 'Why our value is null (empty, rate_limited, etc.)',
-    reference_null_reason Nullable(String)    COMMENT 'Why reference value is null (paid_plan_required, etc.)'
-) ENGINE = ReplicatedMergeTree()
-ORDER BY (run_at, network, contract, field)
-TTL run_at + INTERVAL 180 DAY
-```
+Also includes `run_accuracy_by_field` and `run_accuracy_by_network` views (same pattern as `run_metrics`, grouped by field/network). See `schema/` for full definitions.
 
 ## Scripts
 
 - `bun run fetch-tokens` — Refresh `tokens.json` from CoinGecko (top tokens by market cap)
-- `bun run init-db` — Create ClickHouse tables (`--ttl 180` for TTL, `--drop` to recreate)
+- `bun run init-db` — Create ClickHouse tables and views (idempotent)
 
 Blockscout URLs and chain IDs are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains.
