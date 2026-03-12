@@ -122,7 +122,7 @@ Returns `404` if no completed runs exist.
 | `CLICKHOUSE_DATABASE` | No | `validation` | ClickHouse database name |
 | `TOKEN_API_BASE_URL` | **Yes** | — | Token API base URL |
 | `TOKEN_API_JWT` | **Yes** | — | Bearer JWT for Token API authentication ([quick start](https://thegraph.com/docs/en/token-api/quick-start/)) |
-| `ETHERSCAN_API_KEY` | No | — | Etherscan V2 API key (single key, works across all chains) |
+| `ETHERSCAN_API_KEY` | No | — | Etherscan V2 paid API key (single key, works across all chains) |
 | `COINGECKO_API_KEY` | No | — | CoinGecko API key (only used by `fetch-tokens` script, not at runtime) |
 | `CRON_SCHEDULE` | No | `0 */6 * * *` | Validation run cron schedule |
 | `RATE_LIMIT_MS` | No | `500` | Delay between provider requests within a network (ms) |

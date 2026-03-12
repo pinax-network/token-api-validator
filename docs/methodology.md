@@ -21,12 +21,9 @@ The reference set is the **top 500 coins by global market cap** from CoinGecko �
 | Provider | API key | Fields |
 |----------|---------|--------|
 | Blockscout | No | symbol, decimals, total_supply |
-| Etherscan V2 (free) | Yes (free) | total_supply only |
-| Etherscan V2 (Pro) | Yes (paid) | symbol, decimals, total_supply |
+| Etherscan V2 | Yes (paid) | symbol, decimals, total_supply |
 
 Explorer URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available explorers are queried per network** — a single token may produce comparison rows from both Blockscout and Etherscan. Networks with no known explorer are skipped.
-
-Etherscan Pro is tried first; if unavailable, the free tier provides total supply only. Partial availability is recorded per-field so coverage metrics reflect the gap accurately.
 
 ## Metrics
 
@@ -93,5 +90,5 @@ These are encoded in ClickHouse views (`schema/`) which serve as the single sour
 
 1. **Sample-based** — only the top 500 coins by market cap. Long-tail token accuracy may differ.
 2. **Timing** — our API and explorers are queried moments apart. High-velocity tokens (e.g., stablecoins) may cross the tolerance transiently.
-3. **Free tier gaps** — Etherscan free tier only provides total supply. Some chains (e.g., BSC) have no Blockscout, leaving only Etherscan.
+3. **Explorer gaps** — Some chains (e.g., BSC) have no Blockscout instance, leaving only Etherscan. If the Etherscan plan lapses, affected chains lose all reference coverage.
 4. **Cold start** — sustained mismatch detection needs ≥5 runs of history. Early runs may show inflated regression counts.
