@@ -3,6 +3,7 @@ import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
 import {
+    allFieldsNull,
     emptyMetadata,
     type FieldNullReasons,
     httpStatusToNullReason,
@@ -58,85 +59,69 @@ function parseEtherscanError(result: string): NullReason {
 type ApiResult = { ok: true; data: EtherscanResponse; url: string } | { ok: false; reason: NullReason; url: string };
 
 /**
- * Fetches token metadata from Etherscan V2 unified API.
- *
- * Tries `token/tokeninfo` (Pro) first — returns all fields (symbol, decimals, total_supply).
- * If that fails (e.g. paid plan required), falls back to `stats/tokensupply` (free) for total_supply only,
- * with the tokeninfo error reason recorded on decimals and symbol.
+ * Fetches token metadata from Etherscan V2 unified API using the `token/tokeninfo` endpoint.
+ * Requires a paid API plan — if the plan lapses, all fields will return `paid_plan_required`.
  */
 export class EtherscanProvider {
     name = 'etherscan';
 
     async fetch(network: string, contract: string, chainId: number): Promise<ProviderResult> {
-        const baseParams: Record<string, string> = { chainid: String(chainId), contractaddress: contract };
-        if (config.etherscanApiKey) baseParams.apikey = config.etherscanApiKey;
+        const params: Record<string, string> = {
+            chainid: String(chainId),
+            contractaddress: contract,
+            module: 'token',
+            action: 'tokeninfo',
+        };
+        if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
 
         const start = Date.now();
-
-        // Try Pro endpoint first — has all fields
-        const infoResult = await this.callApi(network, { ...baseParams, module: 'token', action: 'tokeninfo' });
-
-        if (infoResult.ok) {
-            const results = infoResult.data.result;
-            const token = (Array.isArray(results) ? results[0] : undefined) as TokenInfoEntry | undefined;
-
-            if (token) {
-                const data = {
-                    symbol: token.symbol || null,
-                    decimals: token.divisor != null && token.divisor !== '' ? Number(token.divisor) : null,
-                    total_supply:
-                        typeof token.totalSupply === 'string' && token.totalSupply.length > 0
-                            ? token.totalSupply
-                            : null,
-                };
-                const null_reasons: FieldNullReasons = {};
-                if (data.symbol == null) null_reasons.symbol = 'empty';
-                if (data.decimals == null) null_reasons.decimals = 'empty';
-                if (data.total_supply == null) null_reasons.total_supply = 'empty';
-
-                return {
-                    data,
-                    fetched_at: new Date(),
-                    response_time_ms: Date.now() - start,
-                    url: infoResult.url,
-                    provider: 'etherscan',
-                    null_reasons,
-                };
-            }
-        }
-
-        // tokeninfo failed (e.g. paid_plan_required) or returned empty — this is why symbol/decimals are unavailable
-        const infoFailReason: NullReason = infoResult.ok ? 'empty' : infoResult.reason;
-
-        // Fall back to free endpoint for total_supply only
-        const supplyResult = await this.callApi(network, { ...baseParams, module: 'stats', action: 'tokensupply' });
+        const result = await this.callApi(network, params);
         const responseTimeMs = Date.now() - start;
 
-        if (!supplyResult.ok) {
+        if (!result.ok) {
             return {
                 data: emptyMetadata(),
                 fetched_at: new Date(),
                 response_time_ms: responseTimeMs,
-                url: supplyResult.url,
+                url: result.url,
                 provider: 'etherscan',
-                null_reasons: { symbol: infoFailReason, decimals: infoFailReason, total_supply: supplyResult.reason },
+                null_reasons: allFieldsNull(result.reason),
             };
         }
 
-        const raw = supplyResult.data.result;
-        const total_supply = typeof raw === 'string' && raw.length > 0 ? raw : null;
+        const token = (Array.isArray(result.data.result) ? result.data.result[0] : undefined) as
+            | TokenInfoEntry
+            | undefined;
+
+        if (!token) {
+            return {
+                data: emptyMetadata(),
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url: result.url,
+                provider: 'etherscan',
+                null_reasons: allFieldsNull('empty'),
+            };
+        }
+
+        const data = {
+            symbol: token.symbol != null && token.symbol !== '' ? token.symbol : null,
+            decimals: token.divisor != null && token.divisor !== '' ? Number(token.divisor) : null,
+            total_supply:
+                typeof token.totalSupply === 'string' && token.totalSupply.length > 0 ? token.totalSupply : null,
+        };
+        const null_reasons: FieldNullReasons = {};
+        if (data.symbol == null) null_reasons.symbol = 'empty';
+        if (data.decimals == null) null_reasons.decimals = 'empty';
+        if (data.total_supply == null) null_reasons.total_supply = 'empty';
 
         return {
-            data: { symbol: null, decimals: null, total_supply },
+            data,
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
-            url: supplyResult.url,
+            url: result.url,
             provider: 'etherscan',
-            null_reasons: {
-                symbol: infoFailReason,
-                decimals: infoFailReason,
-                ...(total_supply == null && { total_supply: 'empty' }),
-            },
+            null_reasons,
         };
     }
 
