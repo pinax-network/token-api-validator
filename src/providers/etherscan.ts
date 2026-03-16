@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
 import { getChainId } from '../registry.js';
-import { scaleDown } from '../utils/normalize.js';
+import { scaleDown, scaleUp } from '../utils/normalize.js';
 import { withRetry } from '../utils/retry.js';
 import {
     allFieldsNull,
@@ -33,7 +33,7 @@ interface TokenInfoEntry {
     tokenType: string;
 }
 
-/** Etherscan V2 `token/tokenholderlist` response entry. */
+/** Etherscan V2 `token/topholders` response entry. */
 interface TopHolderEntry {
     TokenHolderAddress: string;
     TokenHolderQuantity: string;
@@ -75,6 +75,11 @@ type ApiResult = { ok: true; data: EtherscanResponse; url: string } | { ok: fals
  */
 export class EtherscanProvider {
     name = 'etherscan';
+    private decimalsLookup = new Map<string, number>();
+
+    private lookupKey(network: string, contract: string): string {
+        return `${network}:${contract.toLowerCase()}`;
+    }
 
     async fetchMetadata(network: string, contract: string): Promise<MetadataResult> {
         const chainId = getChainId(network);
@@ -119,6 +124,9 @@ export class EtherscanProvider {
         }
 
         const decimals = token.divisor != null && token.divisor !== '' ? Number(token.divisor) : null;
+        if (decimals != null) {
+            this.decimalsLookup.set(this.lookupKey(network, contract), decimals);
+        }
         const rawSupply =
             typeof token.totalSupply === 'string' && token.totalSupply.length > 0 ? token.totalSupply : null;
         const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
@@ -149,12 +157,13 @@ export class EtherscanProvider {
         const chainId = getChainId(network);
         if (chainId == null) throw new Error(`No chain ID for network ${network}`);
 
+        const decimals = await this.getDecimals(network, contract);
+
         const params: Record<string, string> = {
             chainid: String(chainId),
             contractaddress: contract,
             module: 'token',
-            action: 'tokenholderlist',
-            page: '1',
+            action: 'topholders',
             offset: '100',
         };
         if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
@@ -182,7 +191,7 @@ export class EtherscanProvider {
         const entries = Array.isArray(result.data.result) ? (result.data.result as TopHolderEntry[]) : [];
         const balances: BalanceEntry[] = entries.map((e) => ({
             address: e.TokenHolderAddress.toLowerCase(),
-            balance: e.TokenHolderQuantity,
+            balance: decimals != null ? scaleUp(e.TokenHolderQuantity, decimals) : e.TokenHolderQuantity,
         }));
 
         return {
@@ -194,6 +203,16 @@ export class EtherscanProvider {
             null_reason: balances.length === 0 ? 'empty' : null,
             block_timestamp: null,
         };
+    }
+
+    /** Get decimals for a contract, using the lookup table or fetching metadata on miss. */
+    private async getDecimals(network: string, contract: string): Promise<number | null> {
+        const key = this.lookupKey(network, contract);
+        const cached = this.decimalsLookup.get(key);
+        if (cached != null) return cached;
+
+        const metadata = await this.fetchMetadata(network, contract);
+        return metadata.data.decimals;
     }
 
     /** Etherscan V2 API call with retry, error handling, and metrics. */

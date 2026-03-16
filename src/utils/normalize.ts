@@ -11,3 +11,13 @@ export function scaleDown(raw: string, decimals: number): string {
     const fracPart = padded.slice(-decimals).replace(/0+$/, '');
     return fracPart ? `${intPart}.${fracPart}` : intPart;
 }
+
+/** Multiply a human-readable decimal string by 10^decimals to produce a raw integer string. */
+export function scaleUp(value: string, decimals: number): string {
+    if (!value.includes('.')) return value;
+    if (decimals === 0) return value.replace('.', '');
+    const [intPart, fracPart = ''] = value.split('.');
+    const padded = fracPart.padEnd(decimals, '0').slice(0, decimals);
+    const raw = (intPart + padded).replace(/^0+/, '') || '0';
+    return raw;
+}
