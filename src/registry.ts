@@ -53,6 +53,16 @@ const DEFAULTS: Record<string, NetworkProviders> = {
 // Synced from registry at startup and before each validation run
 let providerMap: Record<string, NetworkProviders> = { ...DEFAULTS };
 
+/** Look up the Blockscout API base URL for a network. */
+export function getBlockscoutUrl(network: string): string | null {
+    return providerMap[network]?.blockscout_url ?? null;
+}
+
+/** Look up the EVM chain ID for a network. */
+export function getChainId(network: string): number | null {
+    return providerMap[network]?.chain_id ?? null;
+}
+
 /** Return all available reference providers for a network (Blockscout and/or Etherscan). */
 export function getAvailableProviders(network: string): ProviderChoice[] {
     const info = providerMap[network];
@@ -100,19 +110,13 @@ export async function syncRegistry(): Promise<void> {
 
             const info: NetworkProviders = {
                 blockscout_url: updated[networkId]?.blockscout_url ?? null,
-                chain_id: updated[networkId]?.chain_id ?? parseChainId(network.caip2Id),
+                chain_id: parseChainId(network.caip2Id) ?? updated[networkId]?.chain_id ?? null,
             };
 
             for (const apiUrl of network.apiUrls ?? []) {
                 if (apiUrl.kind === 'blockscout' && apiUrl.url) {
                     info.blockscout_url = apiUrl.url;
                 }
-            }
-
-            // Extract chain ID from registry if not already set
-            const registryChainId = parseChainId(network.caip2Id);
-            if (registryChainId != null) {
-                info.chain_id = registryChainId;
             }
 
             updated[networkId] = info;
