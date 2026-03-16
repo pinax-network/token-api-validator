@@ -97,7 +97,7 @@ Coverage = comparable / total_comparisons
 
 ### Null Reasons
 
-Tracked **per-field** (metadata) or **per-request** (balances) — a provider may succeed for some fields and fail for others.
+Tracked **per-entry** — each comparable entry carries its own null reason. A provider may succeed for some fields and fail for others.
 
 | Reason | Meaning | Effect on metrics |
 |--------|---------|-------------------|
