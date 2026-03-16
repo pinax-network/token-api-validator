@@ -27,14 +27,14 @@ export const tokensChecked = new Counter({
 export const providerRequests = new Counter({
     name: 'validator_provider_requests_total',
     help: 'Total provider API requests',
-    labelNames: ['provider', 'network', 'status'] as const,
+    labelNames: ['provider', 'network', 'endpoint', 'status'] as const,
     registers: [register],
 });
 
 export const providerDuration = new Histogram({
     name: 'validator_provider_request_duration_seconds',
     help: 'Provider API request duration in seconds',
-    labelNames: ['provider'] as const,
+    labelNames: ['provider', 'endpoint'] as const,
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     registers: [register],
 });
