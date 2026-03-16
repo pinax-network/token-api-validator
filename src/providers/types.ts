@@ -27,6 +27,12 @@ export interface ProviderResult {
     block_timestamp: Date | null;
 }
 
+/** Contract that all providers (Token API, Blockscout, Etherscan) implement. */
+export interface Provider {
+    fetchMetadata(network: string, contract: string): Promise<ProviderResult>;
+    fetchBalances(network: string, contract: string): Promise<ProviderResult>;
+}
+
 /** Map an HTTP status code to a null_reason value. */
 export function httpStatusToNullReason(status: number): NullReason {
     if (status === 404) return 'not_found';

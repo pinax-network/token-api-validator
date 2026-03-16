@@ -5,7 +5,7 @@ import { runDuration, runsTotal, tokensChecked } from './metrics.js';
 import { BlockscoutProvider } from './providers/blockscout.js';
 import { EtherscanProvider } from './providers/etherscan.js';
 import { TokenApiProvider } from './providers/token-api.js';
-import type { ProviderResult, TokenReference } from './providers/types.js';
+import type { Provider, ProviderResult, TokenReference } from './providers/types.js';
 import { getAvailableProviders, syncRegistry } from './registry.js';
 import {
     type ComparisonRecord,
@@ -23,12 +23,7 @@ const TOLERANCES: Record<string, FieldTolerance> = {
     balance: { type: 'relative', threshold: 0.01 },
 };
 
-interface ReferenceProvider {
-    fetchMetadata(network: string, contract: string): Promise<ProviderResult>;
-    fetchBalances(network: string, contract: string): Promise<ProviderResult>;
-}
-
-type ProviderFetch = (provider: ReferenceProvider | TokenApiProvider) => Promise<ProviderResult>;
+type ProviderFetch = (provider: Provider) => Promise<ProviderResult>;
 
 let runInProgress = false;
 let currentRun: RunRecord | null = null;
@@ -110,7 +105,7 @@ function buildComparisonRecords(
 async function validateToken(
     token: TokenReference,
     tokenApi: TokenApiProvider,
-    references: ReferenceProvider[],
+    references: Provider[],
     runId: string,
     runAt: string
 ): Promise<{ records: ComparisonRecord[]; error: boolean }> {
@@ -150,7 +145,7 @@ async function validateToken(
 async function validateNetwork(
     tokens: TokenReference[],
     tokenApi: TokenApiProvider,
-    references: ReferenceProvider[],
+    references: Provider[],
     runId: string,
     runAt: string
 ): Promise<{ records: ComparisonRecord[]; errors: number }> {
@@ -242,7 +237,7 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
                         errors: networkTokens.length,
                     });
                 }
-                const references: ReferenceProvider[] = choices.map((choice) =>
+                const references: Provider[] = choices.map((choice) =>
                     choice.kind === 'blockscout' ? blockscout : etherscan
                 );
                 return validateNetwork(networkTokens, tokenApi, references, runId, runAt);

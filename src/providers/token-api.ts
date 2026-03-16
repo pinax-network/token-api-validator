@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import { type ComparableEntry, httpStatusToNullReason, type ProviderResult } from './types.js';
+import { type ComparableEntry, httpStatusToNullReason, type Provider, type ProviderResult } from './types.js';
 
 interface TokenApiResponse {
     data: Array<{
@@ -32,7 +32,7 @@ const BATCH_LIMIT = 100;
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
 /** Fetches token metadata and balances from the Pinax Token API. */
-export class TokenApiProvider {
+export class TokenApiProvider implements Provider {
     name = 'token-api';
     private metadataCache = new Map<string, ProviderResult>();
 

@@ -4,7 +4,13 @@ import { providerDuration, providerRequests } from '../metrics.js';
 import { getChainId } from '../registry.js';
 import { scaleDown, scaleUp } from '../utils/normalize.js';
 import { withRetry } from '../utils/retry.js';
-import { type ComparableEntry, httpStatusToNullReason, type NullReason, type ProviderResult } from './types.js';
+import {
+    type ComparableEntry,
+    httpStatusToNullReason,
+    type NullReason,
+    type Provider,
+    type ProviderResult,
+} from './types.js';
 
 const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2/api';
 
@@ -54,7 +60,7 @@ const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
  * Fetches token metadata and balances from Etherscan V2 unified API.
  * Requires a paid API plan — if the plan lapses, all fields will return `paid_plan_required`.
  */
-export class EtherscanProvider {
+export class EtherscanProvider implements Provider {
     name = 'etherscan';
     private decimalsLookup = new Map<string, number>();
 

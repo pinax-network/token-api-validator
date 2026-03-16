@@ -4,7 +4,13 @@ import { providerDuration, providerRequests } from '../metrics.js';
 import { getBlockscoutUrl } from '../registry.js';
 import { scaleDown } from '../utils/normalize.js';
 import { withRetry } from '../utils/retry.js';
-import { type ComparableEntry, httpStatusToNullReason, type NullReason, type ProviderResult } from './types.js';
+import {
+    type ComparableEntry,
+    httpStatusToNullReason,
+    type NullReason,
+    type Provider,
+    type ProviderResult,
+} from './types.js';
 
 /** Blockscout RPC module response for token metadata. */
 interface BlockscoutTokenResponse {
@@ -30,7 +36,7 @@ interface BlockscoutHoldersResponse {
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
 /** Fetches token metadata and balances from Blockscout block explorers. */
-export class BlockscoutProvider {
+export class BlockscoutProvider implements Provider {
     name = 'blockscout';
 
     async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
