@@ -38,12 +38,13 @@ bun run dev
 
 ## Report
 
-`GET /report` returns a JSON object with four sections describing the latest validation run:
+`GET /report` returns a JSON object with the latest validation run and per-domain results:
 
-- **`run`** — Run summary: ID, timestamps, trigger type (`scheduled`/`manual`), status, and totals (tokens checked, comparisons, matches, mismatches, nulls, errors).
-- **`metrics`** — Aggregate quality metrics: accuracy, adjusted accuracy (fresh data only), coverage, and the underlying counts. See [methodology](docs/methodology.md) for definitions.
-- **`regressions`** — Active regressions: comparisons that are currently in a sustained mismatch state. Each entry includes network, contract, symbol, field, provider, both values, relative diff, tolerance, and source URLs for reproducibility.
-- **`mismatches`** — Current-run mismatches (non-regression): comparable fields that didn't match in the latest run. Includes null reasons when one side returned no data.
+- **`run`** — Run summary: ID, timestamps, trigger type (`scheduled`/`manual`), status, and aggregate totals across all domains.
+- **`metadata`** / **`balance`** — Per-domain results, each containing:
+  - **`metrics`** — Accuracy, adjusted accuracy (fresh data only), coverage, and underlying counts. See [methodology](docs/methodology.md) for definitions.
+  - **`regressions`** — Active regressions: comparisons in a sustained mismatch state.
+  - **`mismatches`** — Current-run mismatches (non-regression): comparable fields that didn't match.
 
 Returns `404` if no completed runs exist.
 
@@ -54,59 +55,63 @@ Returns `404` if no completed runs exist.
 {
   "run": {
     "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "started_at": "2026-03-11T12:00:00.000Z",
-    "completed_at": "2026-03-11T12:05:32.000Z",
+    "started_at": "2026-03-11 12:00:00",
+    "completed_at": "2026-03-11 12:05:32",
     "trigger": "scheduled",
     "tokens_checked": 743,
-    "comparisons": 3660,
-    "matches": 3412,
-    "mismatches": 123,
-    "nulls": 125,
+    "comparisons": 148260,
+    "matches": 140012,
+    "mismatches": 5123,
+    "nulls": 3125,
     "errors": 0,
     "status": "success",
     "error_detail": null
   },
-  "metrics": {
-    "run_at": "2026-03-11T12:00:00.000Z",
-    "matches": 3412,
-    "mismatches": 123,
-    "nulls": 125,
-    "comparable": 3535,
-    "accuracy": 0.9652,
-    "adjusted_accuracy": 0.9891,
-    "coverage": 0.9658,
-    "total_comparisons": 3660
+  "metadata": {
+    "metrics": {
+      "run_at": "2026-03-11 12:00:00",
+      "matches": 3412,
+      "mismatches": 123,
+      "nulls": 125,
+      "comparable": 3535,
+      "accuracy": 0.9652,
+      "adjusted_accuracy": 0.9891,
+      "coverage": 0.9658,
+      "total_comparisons": 3660
+    },
+    "regressions": [
+      {
+        "network": "mainnet",
+        "contract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "symbol": "USDT",
+        "field": "total_supply",
+        "entity": "",
+        "provider": "blockscout",
+        "our_value": "96119620139.51",
+        "reference_value": "96118349783.47",
+        "relative_diff": 0.0000132,
+        "tolerance": 0.01,
+        "our_url": "https://token-api.thegraph.com/...",
+        "reference_url": "https://eth.blockscout.com/api/..."
+      }
+    ],
+    "mismatches": []
   },
-  "regressions": [
-    {
-      "network": "mainnet",
-      "contract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
-      "symbol": "USDT",
-      "field": "total_supply",
-      "provider": "blockscout",
-      "our_value": "96119620139.51",
-      "reference_value": "96118349783.47",
-      "relative_diff": 0.0000132,
-      "tolerance": 0.01,
-      "our_url": "https://token-api.thegraph.com/...",
-      "reference_url": "https://eth.blockscout.com/api/v2/tokens/0xdac..."
-    }
-  ],
-  "mismatches": [
-    {
-      "network": "bsc",
-      "contract": "0x55d398326f99059ff775485246999027b3197955",
-      "symbol": "USDT",
-      "field": "total_supply",
-      "provider": "etherscan",
-      "our_value": "2030000000.00",
-      "reference_value": null,
-      "relative_diff": null,
-      "tolerance": 0.01,
-      "our_null_reason": null,
-      "reference_null_reason": "empty"
-    }
-  ]
+  "balance": {
+    "metrics": {
+      "run_at": "2026-03-11 12:00:00",
+      "matches": 136600,
+      "mismatches": 5000,
+      "nulls": 3000,
+      "comparable": 141600,
+      "accuracy": 0.9647,
+      "adjusted_accuracy": 0.9812,
+      "coverage": 0.9793,
+      "total_comparisons": 144600
+    },
+    "regressions": [],
+    "mismatches": []
+  }
 }
 ```
 
@@ -129,7 +134,7 @@ Returns `404` if no completed runs exist.
 | `RETRY_MAX_ATTEMPTS` | No | `3` | Max retry attempts for failed requests |
 | `RETRY_BASE_DELAY_MS` | No | `1000` | Base delay for exponential backoff (ms) |
 | `PORT` | No | `3000` | HTTP server port |
-| `VERBOSE` | No | `true` | Enable verbose logging |
+| `VERBOSE` | No | `false` | Enable verbose logging |
 | `PRETTY_LOGGING` | No | `false` | Pretty-print log output |
 
 ## Prometheus Metrics
@@ -139,8 +144,8 @@ Returns `404` if no completed runs exist.
 | `validator_runs_total` | Counter | `trigger`, `status` | Validation runs completed |
 | `validator_run_duration_seconds` | Histogram | — | Run wall-clock duration |
 | `validator_tokens_checked_total` | Counter | `network` | Tokens checked across runs |
-| `validator_provider_requests_total` | Counter | `provider`, `network`, `status` | Provider API requests |
-| `validator_provider_request_duration_seconds` | Histogram | `provider` | Provider request duration |
+| `validator_provider_requests_total` | Counter | `provider`, `network`, `endpoint`, `status` | Provider API requests |
+| `validator_provider_request_duration_seconds` | Histogram | `provider`, `endpoint` | Provider request duration |
 | `validator_provider_batch_requests_total` | Counter | `provider`, `network`, `status` | Batch API requests |
 | `validator_provider_batch_fallbacks_total` | Counter | `provider`, `network` | Batch requests that fell back to individual fetches |
 | `validator_provider_batch_size` | Histogram | `provider`, `network` | Number of items per batch request |
@@ -172,10 +177,12 @@ erDiagram
     comparisons {
         String run_id FK
         DateTime run_at
+        String domain "metadata | balance"
         String network
         String contract
         String symbol
         String field
+        String entity "domain-specific subject key"
         String our_value
         String reference_value
         String provider
@@ -198,22 +205,24 @@ erDiagram
 
     run_metrics {
         DateTime run_at
+        String domain
         Float64 accuracy
         Float64 adjusted_accuracy
         Float64 coverage
     }
 
     regression_status {
+        String domain
         Bool is_regression "exact mismatch or sustained relative"
     }
 
     runs ||--o{ comparisons : "run_id"
-    comparisons ||--|| comparison_enriched : "view"
-    comparison_enriched ||--o{ run_metrics : "aggregates by run_at"
-    comparison_enriched ||--|| regression_status : "view with windowing"
+    comparisons ||--|| comparison_enriched : "adds computed booleans"
+    comparison_enriched ||--o{ run_metrics : "GROUP BY run_at, domain"
+    comparison_enriched ||--|| regression_status : "PARTITION BY domain, ..."
 ```
 
-Also includes `run_accuracy_by_field` and `run_accuracy_by_network` views (same pattern as `run_metrics`, grouped by field/network). See `schema/` for full definitions.
+Also includes `accuracy_by_field` and `accuracy_by_network` views (same pattern as `run_metrics`, grouped by domain+field / domain+network). See `schema/` for full definitions.
 
 ## Scripts
 

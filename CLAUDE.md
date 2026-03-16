@@ -31,30 +31,40 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/index.ts` — Hono HTTP server + scheduler startup
 - `src/config.ts` — Zod-validated env config
 - `src/validator.ts` — Orchestrates a validation run (parallel networks, sequential tokens)
-- `src/comparator.ts` — Tolerance definitions and comparison logic
-- `src/providers/token-api.ts` — Fetches our Token API
-- `src/providers/blockscout.ts` — Fetches from Blockscout explorers
-- `src/providers/etherscan.ts` — Fetches from Etherscan V2 unified API
+- `src/comparator.ts` — `compareField()` (universal comparison primitive)
+- `src/providers/token-api.ts` — Fetches our Token API (metadata + balances)
+- `src/providers/blockscout.ts` — Fetches from Blockscout explorers (metadata + balances)
+- `src/providers/etherscan.ts` — Fetches from Etherscan V2 unified API (metadata + balances)
 - `src/registry.ts` — Graph Network Registry sync for reference provider discovery
 - `src/metrics.ts` — Prometheus metric definitions (shared across modules)
-- `src/storage/clickhouse.ts` — ClickHouse client, insert/query functions
+- `src/storage/clickhouse.ts` — ClickHouse client, insert/query functions, `tallyCounts()` helper
 - `src/scheduler.ts` — croner-based cron scheduling
 - `src/utils/retry.ts` — Shared retry with exponential backoff
 - `src/utils/normalize.ts` — String normalization + total supply scaling (raw integer → human-readable)
-- `src/providers/types.ts` — Shared interfaces (`TokenMetadata`, `ProviderResult`, `NullReason`, etc.) + `emptyMetadata()`, `allFieldsNull()`, `httpStatusToNullReason()`
+- `src/providers/types.ts` — Shared interfaces (`TokenMetadata`, `MetadataResult`, `BalancesResult`, `NullReason`, etc.) + `emptyMetadata()`, `allFieldsNull()`, `httpStatusToNullReason()`
 - `tokens.json` — Reference token list (generated, committed)
 - `schema/` — ClickHouse SQL definitions (tables and views), executed by `init-db`
 - `scripts/` — One-off scripts (not part of runtime)
 
+## Validation domains
+
+The validator compares two **validation domains**: metadata and balances. The domain abstraction works at three layers:
+
+- **Comparator + validator** (inside the abstraction): `compareField()` is the universal comparison primitive — it works on any field in any domain. The validator produces `ComparisonRecord[]` with a `domain` discriminator and uses `tallyCounts()` for generic counting. Adding a domain means wiring new fetch+compare logic in the validator; the comparator and counting code don't change.
+- **Providers** (outside the abstraction): each domain has unique fetch patterns (batch metadata, paginated balances). Providers don't know about domains.
+- **Storage** (partially inside): a single unified `comparisons` table with `domain`/`field`/`entity` columns stores all comparison records. Domain-agnostic views (`comparison_enriched`, `run_metrics`, `regression_status`, etc.) include `domain` in their GROUP BY / PARTITION BY; queries filter with `WHERE domain = '...'`.
+
+Providers normalize **data representation** (e.g. `scaleDown` converts raw integers to human-readable). The comparator normalizes **for comparison** (e.g. case-insensitive matching via `normalizeString`, driven by tolerance config). These responsibilities don't cross.
+
 ## Key conventions
 
-- Tolerances are defined in `src/comparator.ts` as `Record<keyof TokenMetadata, FieldTolerance>`. Adding a field to `TokenMetadata` requires a corresponding tolerance entry (enforced at compile time). `name` is intentionally excluded — see `docs/methodology.md` for rationale.
-- Null reasons (`our_null_reason`, `reference_null_reason`) are tracked **per-field** — a provider may succeed for some fields and fail for others. The `NullReason` type in `src/providers/types.ts` enumerates all valid values. `isNullComparison()` in the comparator checks null reasons (not values) to decide bucketing: provider errors (rate_limited, forbidden, etc.) are excluded from accuracy; `empty` (provider succeeded but returned no data) counts as a mismatch. The `runs` table stores `nulls` alongside `matches` and `mismatches` so that `matches + mismatches + nulls = comparisons`.
-- `total_supply` is stored as string for big number precision, compared numerically with relative tolerance. Our API field is `circulating_supply` (misnamed, represents total supply). Reference providers return raw unscaled integers — normalization to human-readable happens in the comparator via `scaleDown()`.
+- Tolerances are defined in `src/validator.ts` as `TOLERANCES: Record<string, FieldTolerance>`. Adding a field means adding one entry — any domain, any field. `name` is intentionally excluded from metadata — see `docs/methodology.md` for rationale. Balance comparisons use ±1% relative tolerance, same as `total_supply`.
+- Null reasons (`our_null_reason`, `reference_null_reason`) are tracked per-field for metadata and per-request for balances. The `NullReason` type in `src/providers/types.ts` enumerates all valid values. Provider errors (rate_limited, forbidden, etc.) are excluded from accuracy; `empty` (provider succeeded but returned no data) counts as a mismatch. The `runs` table stores aggregate counts across all domains (`matches + mismatches + nulls = comparisons`); per-domain counts are computed from the `comparisons` table via views.
+- `total_supply` is stored as string for big number precision, compared numerically with relative tolerance. Our API field is `circulating_supply` (misnamed, represents total supply). Reference providers normalize raw integers to human-readable via `scaleDown()` in their `fetchMetadata()` methods before returning to the comparator.
 - Blockscout URLs and chain IDs are discovered via The Graph Network Registry (`@pinax/graph-networks-registry`), with hardcoded defaults as fallback. Etherscan uses the V2 unified endpoint (`api.etherscan.io/v2/api?chainid=...`) with a single API key across all chains.
 - The `provider` column in comparisons records the actual reference provider used (`blockscout` or `etherscan`), not a generic name. Request URLs are stored in `our_url` and `reference_url` for reproducibility — API keys are stripped before storage.
 - `TOKEN_API_JWT` is a bearer JWT, not an API key.
-- Etherscan V2 uses `token/tokeninfo` for all fields (requires paid plan). Error parsing in `parseEtherscanError()` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying it.
+- Etherscan V2 uses `token/tokeninfo` for metadata and `token/tokenholderlist` for balances (both require paid plan). Error parsing in `parseEtherscanError()` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying it.
 - All available reference providers are queried per network (not just a preferred one). Token API is batch-fetched per network (comma-separated `contract` param, chunked at 100, with individual fallback on HTTP error); reference provider fetches are parallel within a token (Blockscout and Etherscan are independent services). Rate limiting is per-network (sequential within network, parallel across networks). HTTP 429 responses are retried with exponential backoff via `withRetry`'s `shouldRetry` predicate. On exhaustion, the response is returned (not thrown), so the provider's normal error handling maps it to `null_reason: 'rate_limited'`. Network errors (socket failures, DNS) still throw on exhaustion and surface as run-level errors.
 
 ## Methodology and metric definitions
