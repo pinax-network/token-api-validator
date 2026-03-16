@@ -29,14 +29,16 @@ export interface RunRecord {
     error_detail: string | null;
 }
 
-/** A per-field comparison result for one token, stored in the `comparisons` table. */
+/** A single comparison result, stored in the unified `comparisons` table. */
 export interface ComparisonRecord {
     run_id: string;
     run_at: string;
+    domain: string;
     network: string;
     contract: string;
     symbol: string;
     field: string;
+    entity: string;
     our_value: string | null;
     reference_value: string | null;
     provider: string;
@@ -105,9 +107,35 @@ export async function insertComparisons(records: ComparisonRecord[]): Promise<vo
     }
 }
 
-/** Row from the run_metrics view. */
-interface RunMetrics {
+/** Tally match/mismatch/null counts from comparison records. */
+export function tallyCounts(records: ComparisonRecord[]): {
+    comparisons: number;
+    matches: number;
+    mismatches: number;
+    nulls: number;
+} {
+    let matches = 0;
+    let mismatches = 0;
+    let nulls = 0;
+    for (const c of records) {
+        if (isErrorNull(c.our_null_reason) || isErrorNull(c.reference_null_reason)) {
+            nulls++;
+        } else if (c.is_match) {
+            matches++;
+        } else {
+            mismatches++;
+        }
+    }
+    return { comparisons: records.length, matches, mismatches, nulls };
+}
+
+function isErrorNull(reason: string | null): boolean {
+    return reason != null && reason !== 'empty';
+}
+
+interface DomainMetrics {
     run_at: string;
+    domain: string;
     matches: number;
     mismatches: number;
     nulls: number;
@@ -118,12 +146,12 @@ interface RunMetrics {
     total_comparisons: number;
 }
 
-/** Row from the regression_status view. */
 interface RegressionRow {
     network: string;
     contract: string;
     symbol: string;
     field: string;
+    entity: string;
     provider: string;
     our_value: string | null;
     reference_value: string | null;
@@ -133,12 +161,12 @@ interface RegressionRow {
     reference_url: string;
 }
 
-/** Mismatch row from comparison_enriched (non-regression mismatches). */
 interface MismatchRow {
     network: string;
     contract: string;
     symbol: string;
     field: string;
+    entity: string;
     provider: string;
     our_value: string | null;
     reference_value: string | null;
@@ -148,11 +176,51 @@ interface MismatchRow {
     reference_null_reason: string | null;
 }
 
-export interface Report {
-    run: RunRecord;
-    metrics: RunMetrics;
+interface DomainReport {
+    metrics: DomainMetrics | null;
     regressions: RegressionRow[];
     mismatches: MismatchRow[];
+}
+
+export interface Report {
+    run: RunRecord;
+    metadata: DomainReport;
+    balance: DomainReport;
+}
+
+async function getDomainReport(domain: string): Promise<DomainReport> {
+    const metricsResult = await client.query({
+        query: `SELECT * FROM run_metrics WHERE domain = '${domain}' AND run_at = (SELECT max(run_at) FROM run_metrics WHERE domain = '${domain}')`,
+        format: 'JSONEachRow',
+    });
+    const metrics = (await metricsResult.json<DomainMetrics>())[0] ?? null;
+
+    const regressionsResult = await client.query({
+        query: `SELECT network, contract, symbol, field, entity, provider,
+                    our_value, reference_value, relative_diff, tolerance,
+                    our_url, reference_url
+                FROM regression_status
+                WHERE domain = '${domain}'
+                    AND run_at = (SELECT max(run_at) FROM regression_status WHERE domain = '${domain}') AND is_regression
+                ORDER BY network, symbol, field, entity, provider`,
+        format: 'JSONEachRow',
+    });
+    const regressions = await regressionsResult.json<RegressionRow>();
+
+    const mismatchesResult = await client.query({
+        query: `SELECT network, contract, symbol, field, entity, provider,
+                    our_value, reference_value, relative_diff, tolerance,
+                    our_null_reason, reference_null_reason
+                FROM comparison_enriched
+                WHERE domain = '${domain}'
+                    AND run_at = (SELECT max(run_at) FROM comparison_enriched WHERE domain = '${domain}')
+                    AND is_comparable AND NOT is_match
+                ORDER BY network, symbol, field, entity, provider`,
+        format: 'JSONEachRow',
+    });
+    const mismatches = await mismatchesResult.json<MismatchRow>();
+
+    return { metrics, regressions, mismatches };
 }
 
 export async function getReport(): Promise<Report | null> {
@@ -160,40 +228,10 @@ export async function getReport(): Promise<Report | null> {
         query: 'SELECT * FROM runs ORDER BY started_at DESC LIMIT 1',
         format: 'JSONEachRow',
     });
-    const runs = await runResult.json<RunRecord>();
-    const run = runs[0];
+    const run = (await runResult.json<RunRecord>())[0];
     if (!run) return null;
 
-    const metricsResult = await client.query({
-        query: `SELECT * FROM run_metrics WHERE run_at = (SELECT max(run_at) FROM run_metrics)`,
-        format: 'JSONEachRow',
-    });
-    const metricsRows = await metricsResult.json<RunMetrics>();
-    const metrics = metricsRows[0];
-    if (!metrics) return null;
+    const [metadata, balance] = await Promise.all([getDomainReport('metadata'), getDomainReport('balance')]);
 
-    const regressionsResult = await client.query({
-        query: `SELECT network, contract, symbol, field, provider,
-                    our_value, reference_value, relative_diff, tolerance,
-                    our_url, reference_url
-                FROM regression_status
-                WHERE run_at = (SELECT max(run_at) FROM regression_status) AND is_regression
-                ORDER BY network, symbol, field, provider`,
-        format: 'JSONEachRow',
-    });
-    const regressions = await regressionsResult.json<RegressionRow>();
-
-    const mismatchesResult = await client.query({
-        query: `SELECT network, contract, symbol, field, provider,
-                    our_value, reference_value, relative_diff, tolerance,
-                    our_null_reason, reference_null_reason
-                FROM comparison_enriched
-                WHERE run_at = (SELECT max(run_at) FROM comparison_enriched)
-                    AND is_comparable AND NOT is_match
-                ORDER BY network, symbol, field, provider`,
-        format: 'JSONEachRow',
-    });
-    const mismatches = await mismatchesResult.json<MismatchRow>();
-
-    return { run, metrics, regressions, mismatches };
+    return { run, metadata, balance };
 }
