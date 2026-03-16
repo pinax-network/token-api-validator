@@ -2,14 +2,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import {
-    allFieldsNull,
-    type BalanceEntry,
-    type BalancesResult,
-    emptyMetadata,
-    httpStatusToNullReason,
-    type MetadataResult,
-} from './types.js';
+import { type ComparableEntry, httpStatusToNullReason, type ProviderResult } from './types.js';
 
 interface TokenApiResponse {
     data: Array<{
@@ -35,19 +28,15 @@ interface TokenApiHoldersResponse {
     }>;
 }
 
-/** Extended result that includes the block timestamp from the Token API's last_update_timestamp. */
-export interface TokenApiResult extends MetadataResult {
-    block_timestamp: Date | null;
-}
-
 const BATCH_LIMIT = 100;
+const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
 /** Fetches token metadata and balances from the Pinax Token API. */
 export class TokenApiProvider {
     name = 'token-api';
-    private metadataCache = new Map<string, TokenApiResult>();
+    private metadataCache = new Map<string, ProviderResult>();
 
-    async fetchMetadata(network: string, contract: string): Promise<TokenApiResult> {
+    async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
         const key = `${network}:${contract.toLowerCase()}`;
         const cached = this.metadataCache.get(key);
         if (cached) {
@@ -78,7 +67,7 @@ export class TokenApiProvider {
         }
     }
 
-    async fetchBalances(network: string, contract: string): Promise<BalancesResult> {
+    async fetchBalances(network: string, contract: string): Promise<ProviderResult> {
         const url = `${config.tokenApiBaseUrl}/v1/evm/holders?network=${network}&contract=${contract}&limit=100`;
         const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
@@ -101,42 +90,46 @@ export class TokenApiProvider {
             status: response.ok ? 'success' : 'error',
         });
 
-        if (!response.ok) {
-            logger.warn(`Token API balances returned ${response.status} for ${network}:${contract}`);
-            return {
-                balances: [],
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url,
-                provider: this.name,
-                null_reason: httpStatusToNullReason(response.status),
-                block_timestamp: null,
-            };
-        }
-
-        const body = (await response.json()) as TokenApiHoldersResponse;
-        const balances: BalanceEntry[] = (body.data ?? []).map((entry) => ({
-            address: entry.address.toLowerCase(),
-            balance: entry.amount,
-        }));
-
-        const firstEntry = body.data?.[0];
-        const blockTimestamp = firstEntry?.last_update_timestamp
-            ? new Date(firstEntry.last_update_timestamp * 1000)
-            : null;
-
-        return {
-            balances,
+        const base = {
+            domain: 'balance',
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
-            null_reason: balances.length === 0 ? 'empty' : null,
-            block_timestamp: blockTimestamp,
+            block_timestamp: null as Date | null,
         };
+
+        if (!response.ok) {
+            logger.warn(`Token API balances returned ${response.status} for ${network}:${contract}`);
+            return {
+                ...base,
+                entries: [
+                    { field: 'balance', entity: '', value: null, null_reason: httpStatusToNullReason(response.status) },
+                ],
+            };
+        }
+
+        const body = (await response.json()) as TokenApiHoldersResponse;
+        const entries: ComparableEntry[] = (body.data ?? []).map((entry) => ({
+            field: 'balance',
+            entity: entry.address.toLowerCase(),
+            value: entry.amount,
+            null_reason: null,
+        }));
+
+        const firstEntry = body.data?.[0];
+        base.block_timestamp = firstEntry?.last_update_timestamp
+            ? new Date(firstEntry.last_update_timestamp * 1000)
+            : null;
+
+        if (entries.length === 0) {
+            return { ...base, entries: [{ field: 'balance', entity: '', value: null, null_reason: 'empty' }] };
+        }
+
+        return { ...base, entries };
     }
 
-    private async fetchMetadataSingle(network: string, contract: string): Promise<TokenApiResult> {
+    private async fetchMetadataSingle(network: string, contract: string): Promise<ProviderResult> {
         const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
         const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
@@ -159,16 +152,21 @@ export class TokenApiProvider {
             status: response.ok ? 'success' : 'error',
         });
 
+        const base = {
+            domain: 'metadata',
+            fetched_at: new Date(),
+            response_time_ms: responseTimeMs,
+            url,
+            provider: this.name,
+            block_timestamp: null as Date | null,
+        };
+
         if (!response.ok) {
+            const reason = httpStatusToNullReason(response.status);
             logger.warn(`Token API returned ${response.status} for ${network}:${contract}`);
             return {
-                data: emptyMetadata(),
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url,
-                provider: this.name,
-                null_reasons: allFieldsNull(httpStatusToNullReason(response.status)),
-                block_timestamp: null,
+                ...base,
+                entries: METADATA_FIELDS.map((f) => ({ field: f, entity: '', value: null, null_reason: reason })),
             };
         }
 
@@ -178,13 +176,13 @@ export class TokenApiProvider {
         if (!token) {
             logger.warn(`Token API returned empty data for ${network}:${contract}`);
             return {
-                data: emptyMetadata(),
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url,
-                provider: this.name,
-                null_reasons: allFieldsNull('empty'),
-                block_timestamp: null,
+                ...base,
+                entries: METADATA_FIELDS.map((f) => ({
+                    field: f,
+                    entity: '',
+                    value: null,
+                    null_reason: 'empty' as const,
+                })),
             };
         }
 
@@ -241,12 +239,17 @@ export class TokenApiProvider {
             if (!item) {
                 providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
                 this.metadataCache.set(cacheKey, {
-                    data: emptyMetadata(),
+                    domain: 'metadata',
+                    entries: METADATA_FIELDS.map((f) => ({
+                        field: f,
+                        entity: '',
+                        value: null,
+                        null_reason: 'empty' as const,
+                    })),
                     fetched_at,
                     response_time_ms: responseTimeMs,
                     url: individualUrl,
                     provider: this.name,
-                    null_reasons: allFieldsNull('empty'),
                     block_timestamp: null,
                 });
                 continue;
@@ -262,28 +265,29 @@ export class TokenApiProvider {
         url: string,
         fetched_at: Date,
         responseTimeMs: number
-    ): TokenApiResult {
-        const data = {
+    ): ProviderResult {
+        const values: Record<string, string | null> = {
             name: token.name ?? null,
             symbol: token.symbol ?? null,
-            decimals: token.decimals ?? null,
+            decimals: token.decimals != null ? String(token.decimals) : null,
             // API field is named circulating_supply but represents total supply
             total_supply: token.circulating_supply != null ? String(token.circulating_supply) : null,
         };
 
-        const null_reasons: TokenApiResult['null_reasons'] = {};
-        if (data.name == null) null_reasons.name = 'empty';
-        if (data.symbol == null) null_reasons.symbol = 'empty';
-        if (data.decimals == null) null_reasons.decimals = 'empty';
-        if (data.total_supply == null) null_reasons.total_supply = 'empty';
+        const entries: ComparableEntry[] = METADATA_FIELDS.map((field) => ({
+            field,
+            entity: '',
+            value: values[field] ?? null,
+            null_reason: values[field] == null ? ('empty' as const) : null,
+        }));
 
         return {
-            data,
+            domain: 'metadata',
+            entries,
             fetched_at,
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
-            null_reasons,
             block_timestamp: token.last_update_timestamp ? new Date(token.last_update_timestamp * 1000) : null,
         };
     }

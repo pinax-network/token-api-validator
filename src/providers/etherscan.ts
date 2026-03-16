@@ -4,16 +4,7 @@ import { providerDuration, providerRequests } from '../metrics.js';
 import { getChainId } from '../registry.js';
 import { scaleDown, scaleUp } from '../utils/normalize.js';
 import { withRetry } from '../utils/retry.js';
-import {
-    allFieldsNull,
-    type BalanceEntry,
-    type BalancesResult,
-    emptyMetadata,
-    type FieldNullReasons,
-    httpStatusToNullReason,
-    type MetadataResult,
-    type NullReason,
-} from './types.js';
+import { type ComparableEntry, httpStatusToNullReason, type NullReason, type ProviderResult } from './types.js';
 
 const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2/api';
 
@@ -42,32 +33,22 @@ interface TopHolderEntry {
 /**
  * Parse Etherscan error body into a NullReason.
  *
- * Known error result strings (https://docs.etherscan.io/resources/common-error-messages):
- *   "Max rate limit reached"
- *   "Max calls per sec rate limit reached (N/sec)"
- *   "Invalid API Key"
- *   "Too many invalid api key attempts, please try again later"
- *   "Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage."
- *   "Missing or unsupported chainid parameter (required for v2 api), ..."
- *   "Error! Missing Or invalid Action name"
- *   "Query Timeout occured. Please select a smaller result dataset"
- *   "Sorry, it looks like you are trying to access an API Pro endpoint. Contact us to upgrade to API Pro."
- *
- * When status=1, message may contain "OK-Missing/Invalid API Key, rate limit of 1/5sec applied"
- * (still returns data but at reduced rate — not an error).
+ * Matches exact strings from https://docs.etherscan.io/resources/common-error-messages
  */
 function parseEtherscanError(result: string): NullReason {
-    const lower = result.toLowerCase();
-    if (lower.includes('rate limit reached')) return 'rate_limited';
-    if (lower.startsWith('free api access is not supported')) return 'paid_plan_required';
-    if (lower.includes('api pro endpoint')) return 'paid_plan_required';
-    if (lower.startsWith('invalid api key') || lower.startsWith('too many invalid api key')) return 'forbidden';
-    if (lower.includes('missing or unsupported chainid')) return 'not_found';
-    if (lower.includes('timeout')) return 'timeout';
+    if (result === 'Missing/Invalid API Key') return 'paid_plan_required';
+    if (result === 'Invalid API Key') return 'forbidden';
+    if (result === 'API key not eligible for this endpoint') return 'paid_plan_required';
+    if (result === 'Max rate limit reached') return 'rate_limited';
+    if (result === 'Max calls per sec rate limit reached (5/sec)') return 'rate_limited';
+    if (result.includes('Missing Or invalid Action name')) return 'server_error';
+    if (result.includes('No token found')) return 'not_found';
     return 'server_error';
 }
 
 type ApiResult = { ok: true; data: EtherscanResponse; url: string } | { ok: false; reason: NullReason; url: string };
+
+const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
 /**
  * Fetches token metadata and balances from Etherscan V2 unified API.
@@ -81,7 +62,7 @@ export class EtherscanProvider {
         return `${network}:${contract.toLowerCase()}`;
     }
 
-    async fetchMetadata(network: string, contract: string): Promise<MetadataResult> {
+    async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
         const chainId = getChainId(network);
         if (chainId == null) throw new Error(`No chain ID for network ${network}`);
 
@@ -97,14 +78,24 @@ export class EtherscanProvider {
         const result = await this.callApi(network, params, 'metadata');
         const responseTimeMs = Date.now() - start;
 
+        const base = {
+            domain: 'metadata',
+            fetched_at: new Date(),
+            response_time_ms: responseTimeMs,
+            url: result.url,
+            provider: 'etherscan',
+            block_timestamp: null,
+        };
+
         if (!result.ok) {
             return {
-                data: emptyMetadata(),
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url: result.url,
-                provider: 'etherscan',
-                null_reasons: allFieldsNull(result.reason),
+                ...base,
+                entries: METADATA_FIELDS.map((f) => ({
+                    field: f,
+                    entity: '',
+                    value: null,
+                    null_reason: result.reason,
+                })),
             };
         }
 
@@ -114,12 +105,13 @@ export class EtherscanProvider {
 
         if (!token) {
             return {
-                data: emptyMetadata(),
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url: result.url,
-                provider: 'etherscan',
-                null_reasons: allFieldsNull('empty'),
+                ...base,
+                entries: METADATA_FIELDS.map((f) => ({
+                    field: f,
+                    entity: '',
+                    value: null,
+                    null_reason: 'empty' as const,
+                })),
             };
         }
 
@@ -131,29 +123,24 @@ export class EtherscanProvider {
             typeof token.totalSupply === 'string' && token.totalSupply.length > 0 ? token.totalSupply : null;
         const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
 
-        const data = {
+        const values: Record<string, string | null> = {
             name: token.tokenName != null && token.tokenName !== '' ? token.tokenName : null,
             symbol: token.symbol != null && token.symbol !== '' ? token.symbol : null,
-            decimals,
+            decimals: decimals != null ? String(decimals) : null,
             total_supply: totalSupply,
         };
-        const null_reasons: FieldNullReasons = {};
-        if (data.name == null) null_reasons.name = 'empty';
-        if (data.symbol == null) null_reasons.symbol = 'empty';
-        if (data.decimals == null) null_reasons.decimals = 'empty';
-        if (data.total_supply == null) null_reasons.total_supply = 'empty';
 
-        return {
-            data,
-            fetched_at: new Date(),
-            response_time_ms: responseTimeMs,
-            url: result.url,
-            provider: 'etherscan',
-            null_reasons,
-        };
+        const entries: ComparableEntry[] = METADATA_FIELDS.map((field) => ({
+            field,
+            entity: '',
+            value: values[field] ?? null,
+            null_reason: values[field] == null ? ('empty' as const) : null,
+        }));
+
+        return { ...base, entries };
     }
 
-    async fetchBalances(network: string, contract: string): Promise<BalancesResult> {
+    async fetchBalances(network: string, contract: string): Promise<ProviderResult> {
         const chainId = getChainId(network);
         if (chainId == null) throw new Error(`No chain ID for network ${network}`);
 
@@ -175,34 +162,32 @@ export class EtherscanProvider {
         const storedParams = { ...params };
         delete storedParams.apikey;
         const storedUrl = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(storedParams)}`;
-
-        if (!result.ok) {
-            return {
-                balances: [],
-                fetched_at: new Date(),
-                response_time_ms: responseTimeMs,
-                url: storedUrl,
-                provider: 'etherscan',
-                null_reason: result.reason,
-                block_timestamp: null,
-            };
-        }
-
-        const entries = Array.isArray(result.data.result) ? (result.data.result as TopHolderEntry[]) : [];
-        const balances: BalanceEntry[] = entries.map((e) => ({
-            address: e.TokenHolderAddress.toLowerCase(),
-            balance: decimals != null ? scaleUp(e.TokenHolderQuantity, decimals) : e.TokenHolderQuantity,
-        }));
-
-        return {
-            balances,
+        const base = {
+            domain: 'balance',
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
             url: storedUrl,
             provider: 'etherscan',
-            null_reason: balances.length === 0 ? 'empty' : null,
             block_timestamp: null,
         };
+
+        if (!result.ok) {
+            return { ...base, entries: [{ field: 'balance', entity: '', value: null, null_reason: result.reason }] };
+        }
+
+        const rawEntries = Array.isArray(result.data.result) ? (result.data.result as TopHolderEntry[]) : [];
+        const entries: ComparableEntry[] = rawEntries.map((e) => ({
+            field: 'balance',
+            entity: e.TokenHolderAddress.toLowerCase(),
+            value: decimals != null ? scaleUp(e.TokenHolderQuantity, decimals) : e.TokenHolderQuantity,
+            null_reason: null,
+        }));
+
+        if (entries.length === 0) {
+            return { ...base, entries: [{ field: 'balance', entity: '', value: null, null_reason: 'empty' }] };
+        }
+
+        return { ...base, entries };
     }
 
     /** Get decimals for a contract, using the lookup table or fetching metadata on miss. */
@@ -212,7 +197,8 @@ export class EtherscanProvider {
         if (cached != null) return cached;
 
         const metadata = await this.fetchMetadata(network, contract);
-        return metadata.data.decimals;
+        const decimalsEntry = metadata.entries.find((e) => e.field === 'decimals');
+        return decimalsEntry?.value != null ? Number(decimalsEntry.value) : null;
     }
 
     /** Etherscan V2 API call with retry, error handling, and metrics. */
@@ -224,21 +210,21 @@ export class EtherscanProvider {
 
         try {
             const callStart = Date.now();
-            const { res, body } = await withRetry(
+            let lastBody: EtherscanResponse | undefined;
+
+            const res = await withRetry(
                 async () => {
-                    const res = await fetch(url);
-                    const body = (await res.json()) as EtherscanResponse;
-                    return { res, body };
+                    const r = await fetch(url);
+                    lastBody = (await r.json()) as EtherscanResponse;
+                    return r;
                 },
                 {
                     maxAttempts: config.retryMaxAttempts,
                     baseDelay: config.retryBaseDelayMs,
-                    shouldRetry: ({ res, body }) =>
-                        res.status === 429 ||
-                        (body.status !== '1' &&
-                            String(body.result ?? '')
-                                .toLowerCase()
-                                .includes('rate limit reached')),
+                    shouldRetry: () => {
+                        const msg = String(lastBody?.result ?? '');
+                        return msg.includes('rate limit') || msg.includes('Max rate limit');
+                    },
                 },
                 label
             );
@@ -250,6 +236,8 @@ export class EtherscanProvider {
                 return { ok: false, reason: httpStatusToNullReason(res.status), url: storedUrl };
             }
 
+            const body = lastBody as EtherscanResponse;
+
             if (body.status !== '1') {
                 logger.warn(`${label}: ${body.result}`);
                 providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'error' });
@@ -260,6 +248,7 @@ export class EtherscanProvider {
             return { ok: true, data: body, url: storedUrl };
         } catch (error) {
             logger.warn(`${label}: ${error}`);
+            providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'error' });
             return { ok: false, reason: 'server_error', url: storedUrl };
         }
     }
