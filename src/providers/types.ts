@@ -23,7 +23,7 @@ export type NullReason =
 export type FieldNullReasons = Partial<Record<keyof TokenMetadata, NullReason>>;
 
 /** Result of fetching token metadata from a provider, with timing info. */
-export interface ProviderResult {
+export interface MetadataResult {
     data: TokenMetadata;
     fetched_at: Date;
     response_time_ms: number;
@@ -44,6 +44,23 @@ export function httpStatusToNullReason(status: number): NullReason {
     if (status === 429) return 'rate_limited';
     if (status === 504) return 'timeout';
     return 'server_error';
+}
+
+/** A single address–balance pair from a top holders query. */
+export interface BalanceEntry {
+    address: string;
+    balance: string;
+}
+
+/** Result of fetching top balances from a provider. */
+export interface BalancesResult {
+    balances: BalanceEntry[];
+    fetched_at: Date;
+    response_time_ms: number;
+    url: string;
+    provider: string;
+    null_reason: NullReason | null;
+    block_timestamp: Date | null;
 }
 
 /** A token to validate, as defined in tokens.json. */
