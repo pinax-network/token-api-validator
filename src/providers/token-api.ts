@@ -2,7 +2,14 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import { allFieldsNull, emptyMetadata, httpStatusToNullReason, type ProviderResult } from './types.js';
+import {
+    allFieldsNull,
+    type BalanceEntry,
+    type BalancesResult,
+    emptyMetadata,
+    httpStatusToNullReason,
+    type MetadataResult,
+} from './types.js';
 
 interface TokenApiResponse {
     data: Array<{
@@ -19,18 +26,117 @@ interface TokenApiResponse {
     }>;
 }
 
+/** Token API `/v1/evm/holders` response. */
+interface TokenApiHoldersResponse {
+    data: Array<{
+        address: string;
+        amount: string;
+        last_update_timestamp: number;
+    }>;
+}
+
 /** Extended result that includes the block timestamp from the Token API's last_update_timestamp. */
-export interface TokenApiResult extends ProviderResult {
+export interface TokenApiResult extends MetadataResult {
     block_timestamp: Date | null;
 }
 
 const BATCH_LIMIT = 100;
 
-/** Fetches token metadata from the Pinax Token API. */
+/** Fetches token metadata and balances from the Pinax Token API. */
 export class TokenApiProvider {
     name = 'token-api';
+    private metadataCache = new Map<string, TokenApiResult>();
 
-    async fetch(network: string, contract: string): Promise<TokenApiResult> {
+    async fetchMetadata(network: string, contract: string): Promise<TokenApiResult> {
+        const key = `${network}:${contract.toLowerCase()}`;
+        const cached = this.metadataCache.get(key);
+        if (cached) {
+            this.metadataCache.delete(key);
+            return cached;
+        }
+
+        return this.fetchMetadataSingle(network, contract);
+    }
+
+    /**
+     * Pre-fetch metadata for all contracts on a network in a single batch request.
+     * Subsequent `fetchMetadata()` calls for these contracts read from the internal cache.
+     */
+    async prefetchMetadata(network: string, contracts: string[]): Promise<void> {
+        if (contracts.length === 0) return;
+
+        if (contracts.length === 1) {
+            const contract = contracts[0] as string;
+            const result = await this.fetchMetadataSingle(network, contract);
+            this.metadataCache.set(`${network}:${contract.toLowerCase()}`, result);
+            return;
+        }
+
+        for (let offset = 0; offset < contracts.length; offset += BATCH_LIMIT) {
+            const chunk = contracts.slice(offset, offset + BATCH_LIMIT);
+            await this.fetchChunk(network, chunk);
+        }
+    }
+
+    async fetchBalances(network: string, contract: string): Promise<BalancesResult> {
+        const url = `${config.tokenApiBaseUrl}/v1/evm/holders?network=${network}&contract=${contract}&limit=100`;
+        const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
+
+        const start = Date.now();
+        const response = await withRetry(
+            () => fetch(url, { headers }),
+            {
+                maxAttempts: config.retryMaxAttempts,
+                baseDelay: config.retryBaseDelayMs,
+                shouldRetry: (res) => res.status === 429,
+            },
+            `token-api:balances:${network}:${contract}`
+        );
+        const responseTimeMs = Date.now() - start;
+        providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
+        providerRequests.inc({
+            provider: 'token-api',
+            network,
+            endpoint: 'balance',
+            status: response.ok ? 'success' : 'error',
+        });
+
+        if (!response.ok) {
+            logger.warn(`Token API balances returned ${response.status} for ${network}:${contract}`);
+            return {
+                balances: [],
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url,
+                provider: this.name,
+                null_reason: httpStatusToNullReason(response.status),
+                block_timestamp: null,
+            };
+        }
+
+        const body = (await response.json()) as TokenApiHoldersResponse;
+        const balances: BalanceEntry[] = (body.data ?? []).map((entry) => ({
+            address: entry.address.toLowerCase(),
+            balance: entry.amount,
+        }));
+
+        const firstEntry = body.data?.[0];
+        const blockTimestamp = firstEntry?.last_update_timestamp
+            ? new Date(firstEntry.last_update_timestamp * 1000)
+            : null;
+
+        return {
+            balances,
+            fetched_at: new Date(),
+            response_time_ms: responseTimeMs,
+            url,
+            provider: this.name,
+            null_reason: balances.length === 0 ? 'empty' : null,
+            block_timestamp: blockTimestamp,
+        };
+    }
+
+    private async fetchMetadataSingle(network: string, contract: string): Promise<TokenApiResult> {
         const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
         const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
@@ -45,8 +151,13 @@ export class TokenApiProvider {
             `token-api:${network}:${contract}`
         );
         const responseTimeMs = Date.now() - start;
-        providerDuration.observe({ provider: 'token-api' }, responseTimeMs / 1000);
-        providerRequests.inc({ provider: 'token-api', network, status: response.ok ? 'success' : 'error' });
+        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
+        providerRequests.inc({
+            provider: 'token-api',
+            network,
+            endpoint: 'metadata',
+            status: response.ok ? 'success' : 'error',
+        });
 
         if (!response.ok) {
             logger.warn(`Token API returned ${response.status} for ${network}:${contract}`);
@@ -80,31 +191,7 @@ export class TokenApiProvider {
         return this.buildResult(token, url, new Date(), responseTimeMs);
     }
 
-    /**
-     * Fetch metadata for multiple contracts in one request, chunked to the batch limit.
-     * On HTTP error, falls back to individual fetches for that chunk.
-     */
-    async fetchBatch(network: string, contracts: string[]): Promise<Map<string, TokenApiResult>> {
-        if (contracts.length <= 1) {
-            const contract = contracts[0] as string;
-            const result = await this.fetch(network, contract);
-            return new Map([[contract.toLowerCase(), result]]);
-        }
-
-        const results = new Map<string, TokenApiResult>();
-
-        for (let offset = 0; offset < contracts.length; offset += BATCH_LIMIT) {
-            const chunk = contracts.slice(offset, offset + BATCH_LIMIT);
-            const chunkResults = await this.fetchChunk(network, chunk);
-            for (const [contract, result] of chunkResults) {
-                results.set(contract, result);
-            }
-        }
-
-        return results;
-    }
-
-    private async fetchChunk(network: string, contracts: string[]): Promise<Map<string, TokenApiResult>> {
+    private async fetchChunk(network: string, contracts: string[]): Promise<void> {
         const batchUrl = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contracts.join(',')}`;
         const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
@@ -119,7 +206,7 @@ export class TokenApiProvider {
             `token-api:${network}:batch(${contracts.length})`
         );
         const responseTimeMs = Date.now() - start;
-        providerDuration.observe({ provider: 'token-api' }, responseTimeMs / 1000);
+        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
 
         if (!response.ok) {
             batchRequests.inc({ provider: 'token-api', network, status: 'error' });
@@ -127,12 +214,11 @@ export class TokenApiProvider {
             logger.warn(
                 `Token API batch returned ${response.status} for ${network} (${contracts.length} contracts), falling back to individual`
             );
-            const results = new Map<string, TokenApiResult>();
             for (const contract of contracts) {
-                const result = await this.fetch(network, contract);
-                results.set(contract.toLowerCase(), result);
+                const result = await this.fetchMetadataSingle(network, contract);
+                this.metadataCache.set(`${network}:${contract.toLowerCase()}`, result);
             }
-            return results;
+            return;
         }
 
         batchRequests.inc({ provider: 'token-api', network, status: 'success' });
@@ -141,22 +227,20 @@ export class TokenApiProvider {
         const body = (await response.json()) as TokenApiResponse;
         const fetched_at = new Date();
 
-        // Index response items by contract
         const itemByContract = new Map<string, TokenApiResponse['data'][number]>();
         for (const item of body.data ?? []) {
             itemByContract.set(item.contract.toLowerCase(), item);
         }
 
-        // Build results for all requested contracts
-        const results = new Map<string, TokenApiResult>();
         for (const contract of contracts) {
             const key = contract.toLowerCase();
+            const cacheKey = `${network}:${key}`;
             const individualUrl = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
             const item = itemByContract.get(key);
 
             if (!item) {
-                providerRequests.inc({ provider: 'token-api', network, status: 'error' });
-                results.set(key, {
+                providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
+                this.metadataCache.set(cacheKey, {
                     data: emptyMetadata(),
                     fetched_at,
                     response_time_ms: responseTimeMs,
@@ -168,11 +252,9 @@ export class TokenApiProvider {
                 continue;
             }
 
-            providerRequests.inc({ provider: 'token-api', network, status: 'success' });
-            results.set(key, this.buildResult(item, individualUrl, fetched_at, responseTimeMs));
+            providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'success' });
+            this.metadataCache.set(cacheKey, this.buildResult(item, individualUrl, fetched_at, responseTimeMs));
         }
-
-        return results;
     }
 
     private buildResult(

@@ -1,14 +1,18 @@
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
+import { getChainId } from '../registry.js';
+import { scaleDown } from '../utils/normalize.js';
 import { withRetry } from '../utils/retry.js';
 import {
     allFieldsNull,
+    type BalanceEntry,
+    type BalancesResult,
     emptyMetadata,
     type FieldNullReasons,
     httpStatusToNullReason,
+    type MetadataResult,
     type NullReason,
-    type ProviderResult,
 } from './types.js';
 
 const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2/api';
@@ -19,6 +23,7 @@ interface EtherscanResponse {
     result: unknown;
 }
 
+/** Etherscan V2 `token/tokeninfo` response entry. */
 interface TokenInfoEntry {
     contractAddress: string;
     tokenName: string;
@@ -26,6 +31,12 @@ interface TokenInfoEntry {
     divisor: string;
     totalSupply: string;
     tokenType: string;
+}
+
+/** Etherscan V2 `token/tokenholderlist` response entry. */
+interface TopHolderEntry {
+    TokenHolderAddress: string;
+    TokenHolderQuantity: string;
 }
 
 /**
@@ -59,13 +70,16 @@ function parseEtherscanError(result: string): NullReason {
 type ApiResult = { ok: true; data: EtherscanResponse; url: string } | { ok: false; reason: NullReason; url: string };
 
 /**
- * Fetches token metadata from Etherscan V2 unified API using the `token/tokeninfo` endpoint.
+ * Fetches token metadata and balances from Etherscan V2 unified API.
  * Requires a paid API plan — if the plan lapses, all fields will return `paid_plan_required`.
  */
 export class EtherscanProvider {
     name = 'etherscan';
 
-    async fetch(network: string, contract: string, chainId: number): Promise<ProviderResult> {
+    async fetchMetadata(network: string, contract: string): Promise<MetadataResult> {
+        const chainId = getChainId(network);
+        if (chainId == null) throw new Error(`No chain ID for network ${network}`);
+
         const params: Record<string, string> = {
             chainid: String(chainId),
             contractaddress: contract,
@@ -75,7 +89,7 @@ export class EtherscanProvider {
         if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
 
         const start = Date.now();
-        const result = await this.callApi(network, params);
+        const result = await this.callApi(network, params, 'metadata');
         const responseTimeMs = Date.now() - start;
 
         if (!result.ok) {
@@ -104,11 +118,15 @@ export class EtherscanProvider {
             };
         }
 
+        const decimals = token.divisor != null && token.divisor !== '' ? Number(token.divisor) : null;
+        const rawSupply =
+            typeof token.totalSupply === 'string' && token.totalSupply.length > 0 ? token.totalSupply : null;
+        const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
+
         const data = {
             symbol: token.symbol != null && token.symbol !== '' ? token.symbol : null,
-            decimals: token.divisor != null && token.divisor !== '' ? Number(token.divisor) : null,
-            total_supply:
-                typeof token.totalSupply === 'string' && token.totalSupply.length > 0 ? token.totalSupply : null,
+            decimals,
+            total_supply: totalSupply,
         };
         const null_reasons: FieldNullReasons = {};
         if (data.symbol == null) null_reasons.symbol = 'empty';
@@ -125,8 +143,59 @@ export class EtherscanProvider {
         };
     }
 
+    async fetchBalances(network: string, contract: string): Promise<BalancesResult> {
+        const chainId = getChainId(network);
+        if (chainId == null) throw new Error(`No chain ID for network ${network}`);
+
+        const params: Record<string, string> = {
+            chainid: String(chainId),
+            contractaddress: contract,
+            module: 'token',
+            action: 'tokenholderlist',
+            page: '1',
+            offset: '100',
+        };
+        if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
+
+        const start = Date.now();
+        const result = await this.callApi(network, params, 'balance');
+        const responseTimeMs = Date.now() - start;
+
+        const storedParams = { ...params };
+        delete storedParams.apikey;
+        const storedUrl = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(storedParams)}`;
+
+        if (!result.ok) {
+            return {
+                balances: [],
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url: storedUrl,
+                provider: 'etherscan',
+                null_reason: result.reason,
+                block_timestamp: null,
+            };
+        }
+
+        const entries = Array.isArray(result.data.result) ? (result.data.result as TopHolderEntry[]) : [];
+        const balances: BalanceEntry[] = entries.map((e) => ({
+            address: e.TokenHolderAddress.toLowerCase(),
+            balance: e.TokenHolderQuantity,
+        }));
+
+        return {
+            balances,
+            fetched_at: new Date(),
+            response_time_ms: responseTimeMs,
+            url: storedUrl,
+            provider: 'etherscan',
+            null_reason: balances.length === 0 ? 'empty' : null,
+            block_timestamp: null,
+        };
+    }
+
     /** Etherscan V2 API call with retry, error handling, and metrics. */
-    private async callApi(network: string, params: Record<string, string>): Promise<ApiResult> {
+    private async callApi(network: string, params: Record<string, string>, endpoint: string): Promise<ApiResult> {
         const url = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(params)}`;
         const { apikey: _, ...storedParams } = params;
         const storedUrl = `${ETHERSCAN_V2_BASE}?${new URLSearchParams(storedParams)}`;
@@ -152,21 +221,21 @@ export class EtherscanProvider {
                 },
                 label
             );
-            providerDuration.observe({ provider: 'etherscan' }, (Date.now() - callStart) / 1000);
+            providerDuration.observe({ provider: 'etherscan', endpoint }, (Date.now() - callStart) / 1000);
 
             if (!res.ok) {
                 logger.warn(`${label}: HTTP ${res.status}`);
-                providerRequests.inc({ provider: 'etherscan', network, status: 'error' });
+                providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'error' });
                 return { ok: false, reason: httpStatusToNullReason(res.status), url: storedUrl };
             }
 
             if (body.status !== '1') {
                 logger.warn(`${label}: ${body.result}`);
-                providerRequests.inc({ provider: 'etherscan', network, status: 'error' });
+                providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'error' });
                 return { ok: false, reason: parseEtherscanError(String(body.result ?? '')), url: storedUrl };
             }
 
-            providerRequests.inc({ provider: 'etherscan', network, status: 'success' });
+            providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'success' });
             return { ok: true, data: body, url: storedUrl };
         } catch (error) {
             logger.warn(`${label}: ${error}`);
