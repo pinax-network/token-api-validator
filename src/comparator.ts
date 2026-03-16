@@ -1,20 +1,13 @@
 import { logger } from './logger.js';
-import type { TokenMetadata } from './providers/types.js';
-import { normalizeString, scaleDown } from './utils/normalize.js';
+import { normalizeString } from './utils/normalize.js';
 
-/** Defines how a token metadata field is compared: exact match or within a relative threshold. */
+/** Defines how a field is compared: exact match or within a relative threshold. */
 export interface FieldTolerance {
     type: 'exact' | 'relative';
     normalize?: boolean;
     /** Maximum allowed relative difference (e.g. 0.01 = 1%). Only used for 'relative' type. */
     threshold?: number;
 }
-
-export const TOLERANCES: Record<keyof TokenMetadata, FieldTolerance> = {
-    decimals: { type: 'exact' },
-    symbol: { type: 'exact', normalize: true },
-    total_supply: { type: 'relative', threshold: 0.01 },
-};
 
 /** Outcome of comparing a single field between our data and a reference source. */
 export interface ComparisonResult {
@@ -26,8 +19,9 @@ export interface ComparisonResult {
     tolerance: number;
 }
 
-function compareField(
-    field: keyof TokenMetadata,
+/** Compare a single field value between our data and a reference. */
+export function compareField(
+    field: string,
     ourValue: unknown,
     refValue: unknown,
     tolerance: FieldTolerance
@@ -35,7 +29,6 @@ function compareField(
     const ourStr = ourValue != null ? String(ourValue) : null;
     const refStr = refValue != null ? String(refValue) : null;
 
-    // If either value is null, skip comparison (tracked for coverage, not accuracy)
     if (ourStr == null || refStr == null) {
         return {
             field,
@@ -76,7 +69,6 @@ function compareField(
         };
     }
 
-    // Handle zero reference — exact comparison when ref is 0
     if (refNum === 0) {
         return {
             field,
@@ -98,35 +90,4 @@ function compareField(
         relative_diff: diff,
         tolerance: tolerance.threshold ?? 0,
     };
-}
-
-/** Compare all token metadata fields between our data and a reference, applying configured tolerances. */
-export function compare(ours: TokenMetadata, reference: TokenMetadata): ComparisonResult[] {
-    // Normalize reference total_supply from raw integer to human-readable using decimals from either side
-    const decimals = reference.decimals ?? ours.decimals;
-    const normalizedRef = { ...reference };
-    if (normalizedRef.total_supply != null && decimals != null) {
-        normalizedRef.total_supply = scaleDown(normalizedRef.total_supply, decimals);
-    }
-
-    const results: ComparisonResult[] = [];
-
-    for (const [field, tolerance] of Object.entries(TOLERANCES)) {
-        const key = field as keyof TokenMetadata;
-        results.push(compareField(key, ours[key], normalizedRef[key], tolerance));
-    }
-
-    return results;
-}
-
-/** Check if a comparison should be excluded from accuracy due to a provider error. */
-export function isNullComparison(result: {
-    our_null_reason: string | null;
-    reference_null_reason: string | null;
-}): boolean {
-    return isErrorNullReason(result.our_null_reason) || isErrorNullReason(result.reference_null_reason);
-}
-
-function isErrorNullReason(reason: string | null): boolean {
-    return reason != null && reason !== 'empty';
 }
