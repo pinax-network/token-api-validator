@@ -226,39 +226,30 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         const blockscout = new BlockscoutProvider();
         const etherscan = new EtherscanProvider();
 
-        const networks = [...byNetwork.entries()];
-        const networkResults = await Promise.allSettled(
-            networks.map(([network, networkTokens]) => {
-                const choices = getAvailableProviders(network);
-                if (choices.length === 0) {
-                    logger.warn(`No reference provider available for network ${network}, skipping`);
-                    return Promise.resolve({
-                        records: [] as ComparisonRecord[],
-                        errors: networkTokens.length,
-                    });
-                }
-                const references: Provider[] = choices.map((choice) =>
-                    choice.kind === 'blockscout' ? blockscout : etherscan
-                );
-                return validateNetwork(networkTokens, tokenApi, references, runId, runAt);
-            })
-        );
-
         const allRecords: ComparisonRecord[] = [];
         let totalErrors = 0;
         let numTokensChecked = 0;
 
-        for (const [i, result] of networkResults.entries()) {
-            const [network, networkTokens] = networks[i] as [string, TokenReference[]];
+        for (const [network, networkTokens] of byNetwork) {
+            const choices = getAvailableProviders(network);
+            if (choices.length === 0) {
+                logger.warn(`No reference provider available for network ${network}, skipping`);
+                totalErrors += networkTokens.length;
+                continue;
+            }
+            const references: Provider[] = choices.map((choice) =>
+                choice.kind === 'blockscout' ? blockscout : etherscan
+            );
 
-            if (result.status === 'fulfilled') {
-                allRecords.push(...result.value.records);
-                totalErrors += result.value.errors;
-                const checked = networkTokens.length - result.value.errors;
+            try {
+                const result = await validateNetwork(networkTokens, tokenApi, references, runId, runAt);
+                allRecords.push(...result.records);
+                totalErrors += result.errors;
+                const checked = networkTokens.length - result.errors;
                 tokensChecked.inc({ network }, checked);
                 numTokensChecked += checked;
-            } else {
-                logger.error(`Network ${network} failed entirely:`, result.reason);
+            } catch (error) {
+                logger.error(`Network ${network} failed entirely:`, error);
                 totalErrors += networkTokens.length;
             }
         }
