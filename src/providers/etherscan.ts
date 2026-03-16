@@ -151,6 +151,18 @@ export class EtherscanProvider implements Provider {
         if (chainId == null) throw new Error(`No chain ID for network ${network}`);
 
         const decimals = await this.getDecimals(network, contract);
+        if (decimals == null) {
+            logger.warn(`Etherscan: no decimals for ${network}:${contract}, skipping balance fetch`);
+            return {
+                domain: 'balance',
+                entries: [{ field: 'balance', entity: '', value: null, null_reason: 'server_error' }],
+                fetched_at: new Date(),
+                response_time_ms: 0,
+                url: '',
+                provider: 'etherscan',
+                block_timestamp: null,
+            };
+        }
 
         const params: Record<string, string> = {
             chainid: String(chainId),
