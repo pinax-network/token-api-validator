@@ -1,7 +1,8 @@
--- Per-run accuracy, adjusted accuracy, coverage, and comparison counts.
+-- Per-run, per-domain accuracy, adjusted accuracy, coverage, and comparison counts.
 CREATE OR REPLACE VIEW validation.run_metrics AS
 SELECT
     run_at,
+    domain,
     countIf(is_match AND is_comparable) AS matches,
     countIf(NOT is_match AND is_comparable) AS mismatches,
     countIf(NOT is_comparable) AS nulls,
@@ -17,4 +18,4 @@ SELECT
     ) AS coverage,
     count() AS total_comparisons
 FROM validation.comparison_enriched
-GROUP BY run_at;
+GROUP BY run_at, domain;

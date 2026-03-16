@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS validation.runs (
     completed_at   Nullable(DateTime) COMMENT 'When the run finished (null if still running)',
     trigger        Enum('scheduled', 'manual') COMMENT 'What initiated the run',
     tokens_checked UInt32    COMMENT 'Number of tokens successfully validated',
-    comparisons    UInt32    COMMENT 'Total per-field comparison records produced',
+    comparisons    UInt32    COMMENT 'Total comparison records across all domains',
     matches        UInt32    COMMENT 'Comparisons where values matched within tolerance',
     mismatches     UInt32    COMMENT 'Comparisons where values differed beyond tolerance',
     nulls          UInt32    COMMENT 'Comparisons excluded from accuracy due to provider errors',

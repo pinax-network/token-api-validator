@@ -1,4 +1,4 @@
--- Thin wrapper over comparisons that adds computed booleans.
+-- All comparisons with computed booleans.
 -- is_comparable: both sides returned data (eligible for accuracy metrics)
 -- is_fresh: our data was indexed within 5 minutes of the run
 CREATE OR REPLACE VIEW validation.comparison_enriched AS
