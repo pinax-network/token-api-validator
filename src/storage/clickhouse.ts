@@ -1,8 +1,11 @@
 import { createClient } from '@clickhouse/client-web';
+import pkg from '../../package.json' with { type: 'json' };
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { clickhouseWrites } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
+
+const VERSION = `v${pkg.version}`;
 
 const client = createClient({
     application: 'token-api-validator',
@@ -69,7 +72,7 @@ export async function insertRun(run: RunRecord): Promise<void> {
             async () => {
                 await client.insert({
                     table: 'runs',
-                    values: [run],
+                    values: [{ ...run, version: VERSION }],
                     format: 'JSONEachRow',
                 });
             },

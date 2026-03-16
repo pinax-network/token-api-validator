@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS validation.runs (
     nulls          UInt32    COMMENT 'Comparisons excluded from accuracy due to provider errors',
     errors         UInt32    COMMENT 'Tokens that failed to validate (fetch or compare error)',
     status         Enum('success', 'partial', 'failed') COMMENT 'Overall run outcome',
-    error_detail   Nullable(String) COMMENT 'Error description when status is partial or failed'
+    error_detail   Nullable(String) COMMENT 'Error description when status is partial or failed',
+    version        String DEFAULT '' COMMENT 'Validator version (e.g. 0.4.3)'
 ) ENGINE = ReplicatedMergeTree()
 ORDER BY started_at
 TTL started_at + INTERVAL 180 DAY;
