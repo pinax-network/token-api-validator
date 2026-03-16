@@ -10,8 +10,8 @@ The reference set is the **top 500 coins by global market cap** from CoinGecko �
 
 | Provider | API key | Metadata fields | Balance fields |
 |----------|---------|-----------------|----------------|
-| Blockscout | No | symbol, decimals, total_supply | holder balances (top holders) |
-| Etherscan V2 | Yes (paid) | symbol, decimals, total_supply | holder balances (top holders) |
+| Blockscout | No | name, symbol, decimals, total_supply | holder balances (top holders) |
+| Etherscan V2 | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
 
 Explorer URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available explorers are queried per network** — a single token may produce comparison rows from both Blockscout and Etherscan. Networks with no known explorer are skipped.
 
@@ -44,11 +44,10 @@ The `domain` column tells you how to interpret `entity`. No prefix or structured
 
 | Field | Comparison | Notes |
 |-------|-----------|-------|
+| `name` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. |
 | `decimals` | Exact match | Immutable on-chain. Any mismatch is a real issue. |
 | `symbol` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. |
 | `total_supply` | Numeric, ±1% tolerance | Reference providers return raw integers; providers normalize from raw to human-readable (via `scaleDown`) before comparison. |
-
-`name` is intentionally excluded — our API returns the raw on-chain `name()` value (e.g., "Wrapped BTC") while explorers display curated marketing names (e.g., "Wrapped Bitcoin"). This is a data philosophy difference, not a quality issue.
 
 ---
 

@@ -16,6 +16,7 @@ import {
 } from './storage/clickhouse.js';
 
 const TOLERANCES: Record<string, FieldTolerance> = {
+    name: { type: 'exact', normalize: true },
     decimals: { type: 'exact' },
     symbol: { type: 'exact', normalize: true },
     total_supply: { type: 'relative', threshold: 0.01 },
@@ -64,7 +65,7 @@ function buildMetadataRecords(
     runAt: string
 ): ComparisonRecord[] {
     const records: ComparisonRecord[] = [];
-    const metadataFields: (keyof TokenMetadata)[] = ['decimals', 'symbol', 'total_supply'];
+    const metadataFields: (keyof TokenMetadata)[] = ['name', 'decimals', 'symbol', 'total_supply'];
 
     for (const field of metadataFields) {
         const tolerance = TOLERANCES[field];

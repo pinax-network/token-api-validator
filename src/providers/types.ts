@@ -1,12 +1,13 @@
 /** Core token fields that are compared between our API and reference sources. */
 export interface TokenMetadata {
+    name: string | null;
     symbol: string | null;
     decimals: number | null;
     total_supply: string | null;
 }
 
 export function emptyMetadata(): TokenMetadata {
-    return { symbol: null, decimals: null, total_supply: null };
+    return { name: null, symbol: null, decimals: null, total_supply: null };
 }
 
 /** Why a field value is null. */
@@ -34,7 +35,7 @@ export interface MetadataResult {
 
 /** Convenience: set the same null reason on all fields (whole-request failure). */
 export function allFieldsNull(reason: NullReason): FieldNullReasons {
-    return { decimals: reason, symbol: reason, total_supply: reason };
+    return { name: reason, decimals: reason, symbol: reason, total_supply: reason };
 }
 
 /** Map an HTTP status code to a null_reason value. */

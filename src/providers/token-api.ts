@@ -264,6 +264,7 @@ export class TokenApiProvider {
         responseTimeMs: number
     ): TokenApiResult {
         const data = {
+            name: token.name ?? null,
             symbol: token.symbol ?? null,
             decimals: token.decimals ?? null,
             // API field is named circulating_supply but represents total supply
@@ -271,6 +272,7 @@ export class TokenApiProvider {
         };
 
         const null_reasons: TokenApiResult['null_reasons'] = {};
+        if (data.name == null) null_reasons.name = 'empty';
         if (data.symbol == null) null_reasons.symbol = 'empty';
         if (data.decimals == null) null_reasons.decimals = 'empty';
         if (data.total_supply == null) null_reasons.total_supply = 'empty';

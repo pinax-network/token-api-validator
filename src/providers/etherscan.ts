@@ -124,11 +124,13 @@ export class EtherscanProvider {
         const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
 
         const data = {
+            name: token.tokenName != null && token.tokenName !== '' ? token.tokenName : null,
             symbol: token.symbol != null && token.symbol !== '' ? token.symbol : null,
             decimals,
             total_supply: totalSupply,
         };
         const null_reasons: FieldNullReasons = {};
+        if (data.name == null) null_reasons.name = 'empty';
         if (data.symbol == null) null_reasons.symbol = 'empty';
         if (data.decimals == null) null_reasons.decimals = 'empty';
         if (data.total_supply == null) null_reasons.total_supply = 'empty';

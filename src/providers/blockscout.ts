@@ -16,6 +16,7 @@ import {
 
 /** Blockscout RPC module response for token metadata. */
 interface BlockscoutTokenResponse {
+    name: string;
     symbol: string;
     decimals: string;
     totalSupply: string;
@@ -90,11 +91,13 @@ export class BlockscoutProvider {
         const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
 
         result.data = {
+            name: token.name ?? null,
             symbol: token.symbol ?? null,
             decimals,
             total_supply: totalSupply,
         };
 
+        if (result.data.name == null) result.null_reasons.name = 'empty';
         if (result.data.symbol == null) result.null_reasons.symbol = 'empty';
         if (result.data.decimals == null) result.null_reasons.decimals = 'empty';
         if (result.data.total_supply == null) result.null_reasons.total_supply = 'empty';
