@@ -39,16 +39,8 @@ export function getProgress(): (RunRecord & { total_tokens: number }) | null {
 
 let currentRunTotalTokens = 0;
 
-function loadTokens(): TokenReference[] {
-    return require('../tokens.json') as TokenReference[];
-}
-
 function formatDateTime(date: Date): string {
     return date.toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Join two ProviderResults by (field, entity) and produce ComparisonRecords. */
@@ -173,7 +165,7 @@ async function validateNetwork(
         }
 
         if (i < tokens.length - 1) {
-            await sleep(config.rateLimitMs);
+            await new Promise((resolve) => setTimeout(resolve, config.rateLimitMs));
         }
     }
 
@@ -194,7 +186,7 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
     try {
         await syncRegistry();
 
-        const tokens = loadTokens();
+        const tokens = require('../tokens.json') as TokenReference[];
         if (tokens.length === 0) {
             throw new Error('tokens.json is empty');
         }

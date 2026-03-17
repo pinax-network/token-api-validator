@@ -26,19 +26,12 @@ export const PLATFORM_TO_NETWORK: Record<string, string> = {
     solana: 'solana',
 };
 
-// Registry network IDs → Token API network IDs (where they differ)
+// Registry network IDs that differ from Token API network IDs
 const REGISTRY_TO_NETWORK: Record<string, string> = {
-    mainnet: 'mainnet',
-    bsc: 'bsc',
     matic: 'polygon',
-    avalanche: 'avalanche',
-    'arbitrum-one': 'arbitrum-one',
-    optimism: 'optimism',
-    base: 'base',
-    unichain: 'unichain',
 };
 
-// Sensible defaults — used before first registry sync
+// Sensible defaults — used before first registry sync and as the canonical list of supported networks
 const DEFAULTS: Record<string, NetworkProviders> = {
     mainnet: { blockscout_url: 'https://eth.blockscout.com/api', chain_id: 1 },
     base: { blockscout_url: 'https://base.blockscout.com/api', chain_id: 8453 },
@@ -103,23 +96,16 @@ export async function syncRegistry(): Promise<void> {
 
         for (const network of registry.networks) {
             const networkId = REGISTRY_TO_NETWORK[network.id] ?? network.id;
+            if (!updated[networkId]) continue;
 
-            if (!DEFAULTS[networkId] && !Object.values(REGISTRY_TO_NETWORK).includes(networkId)) {
-                continue;
-            }
-
-            const info: NetworkProviders = {
-                blockscout_url: updated[networkId]?.blockscout_url ?? null,
-                chain_id: parseChainId(network.caip2Id) ?? updated[networkId]?.chain_id ?? null,
-            };
+            const chainId = parseChainId(network.caip2Id);
+            if (chainId != null) updated[networkId].chain_id = chainId;
 
             for (const apiUrl of network.apiUrls ?? []) {
                 if (apiUrl.kind === 'blockscout' && apiUrl.url) {
-                    info.blockscout_url = apiUrl.url;
+                    updated[networkId].blockscout_url = apiUrl.url;
                 }
             }
-
-            updated[networkId] = info;
         }
 
         providerMap = updated;
