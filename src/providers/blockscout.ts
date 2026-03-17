@@ -12,12 +12,12 @@ import {
     type ProviderResult,
 } from './types.js';
 
-/** Blockscout RPC module response for token metadata. */
+/** Blockscout REST v2 token metadata response. */
 interface BlockscoutTokenResponse {
     name: string;
     symbol: string;
     decimals: string;
-    totalSupply: string;
+    total_supply: string;
     type: string;
 }
 
@@ -39,11 +39,15 @@ const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 export class BlockscoutProvider implements Provider {
     name = 'blockscout';
 
-    async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
+    /** Derive REST v2 base from the RPC-style URL returned by the registry. */
+    private v2Base(network: string): string {
         const baseUrl = getBlockscoutUrl(network);
         if (!baseUrl) throw new Error(`No Blockscout URL for network ${network}`);
+        return baseUrl.replace(/\/api\/?$/, '');
+    }
 
-        const url = `${baseUrl}?module=token&action=getToken&contractaddress=${contract}`;
+    async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
+        const url = `${this.v2Base(network)}/api/v2/tokens/${contract}`;
 
         const start = Date.now();
         const response = await withRetry(
@@ -77,12 +81,11 @@ export class BlockscoutProvider implements Provider {
             };
         }
 
-        const body = await response.json();
-        const token = (body as { result?: BlockscoutTokenResponse }).result;
+        const token = (await response.json()) as BlockscoutTokenResponse;
 
-        if (!token) {
+        if (!token.name && !token.symbol) {
             providerRequests.inc({ provider: 'blockscout', network, endpoint: 'metadata', status: 'error' });
-            logger.warn(`Blockscout returned no result for ${network}:${contract}`);
+            logger.warn(`Blockscout returned empty token for ${network}:${contract}`);
             return {
                 ...base,
                 entries: METADATA_FIELDS.map((f) => ({ field: f, entity: '', value: null, null_reason: 'empty' })),
@@ -92,7 +95,7 @@ export class BlockscoutProvider implements Provider {
         providerRequests.inc({ provider: 'blockscout', network, endpoint: 'metadata', status: 'success' });
 
         const decimals = token.decimals != null ? Number(token.decimals) : null;
-        const rawSupply = token.totalSupply ?? null;
+        const rawSupply = token.total_supply ?? null;
         const totalSupply = rawSupply != null && decimals != null ? scaleDown(rawSupply, decimals) : rawSupply;
 
         const values: Record<string, string | null> = {
@@ -113,11 +116,7 @@ export class BlockscoutProvider implements Provider {
     }
 
     async fetchBalances(network: string, contract: string): Promise<ProviderResult> {
-        const baseUrl = getBlockscoutUrl(network);
-        if (!baseUrl) throw new Error(`No Blockscout URL for network ${network}`);
-
-        const v2Base = baseUrl.replace(/\/api\/?$/, '');
-        const holdersUrl = `${v2Base}/api/v2/tokens/${contract}/holders`;
+        const holdersUrl = `${this.v2Base(network)}/api/v2/tokens/${contract}/holders`;
 
         const start = Date.now();
         const entries: ComparableEntry[] = [];
