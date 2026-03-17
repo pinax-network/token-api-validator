@@ -51,7 +51,8 @@ app.notFound((c) => c.json({ error: `Not found: ${c.req.method} ${c.req.path}` }
 if (await pingClickHouse()) {
     logger.info('ClickHouse connection OK');
 } else {
-    logger.error(`ClickHouse is not reachable at ${config.clickhouseUrl}`);
+    logger.error(`ClickHouse is not reachable at ${config.clickhouseUrl}, exiting`);
+    process.exit(1);
 }
 
 logger.info('Syncing network registry...');

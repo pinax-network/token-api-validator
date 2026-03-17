@@ -59,7 +59,11 @@ export interface ComparisonRecord {
 
 export async function ping(): Promise<boolean> {
     try {
-        await client.query({ query: 'SELECT 1', format: 'JSONEachRow' });
+        await withRetry(
+            () => client.query({ query: 'SELECT 1', format: 'JSONEachRow' }),
+            { maxAttempts: config.retryMaxAttempts, baseDelay: config.retryBaseDelayMs },
+            'clickhouse:ping'
+        );
         return true;
     } catch {
         return false;
