@@ -22,6 +22,9 @@ bun run fetch-tokens
 # Create ClickHouse tables and views
 bun run init-db
 
+# Run tests
+bun test
+
 # Start the service
 bun run dev
 ```

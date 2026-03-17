@@ -13,6 +13,7 @@
         "init-db": "bun scripts/init-db.ts",
         "typecheck": "tsc --noEmit",
         "fix": "biome check --write --unsafe",
+        "test": "bun test",
         "lint": "bun run typecheck && biome check ."
     },
     "dependencies": {

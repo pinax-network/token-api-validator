@@ -16,6 +16,7 @@ Validation service that compares Token API responses against reference providers
 bun install              # install dependencies
 bun run dev              # start with --watch
 bun run start            # production start
+bun run test             # run tests
 bun run typecheck        # tsc --noEmit
 bun run lint             # biome check
 bun run fetch-tokens     # refresh tokens.json from CoinGecko (needs COINGECKO_API_KEY)
@@ -74,7 +75,7 @@ Providers normalize **data representation** (e.g. `scaleDown` converts raw integ
 
 ## Validation
 
-After any code change, run `bun run typecheck && bunx biome check .` to verify. Use `bunx biome check --write .` to auto-fix formatting.
+After any code change, run `bun test && bun run typecheck && bunx biome check .` to verify. Use `bunx biome check --write .` to auto-fix formatting.
 
 ## ClickHouse
 

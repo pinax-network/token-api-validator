@@ -41,7 +41,7 @@ interface TopHolderEntry {
  *
  * Matches exact strings from https://docs.etherscan.io/resources/common-error-messages
  */
-function parseEtherscanError(result: string): NullReason {
+export function parseEtherscanError(result: string): NullReason {
     if (result === 'Missing/Invalid API Key') return 'paid_plan_required';
     if (result === 'Invalid API Key') return 'forbidden';
     if (result === 'API key not eligible for this endpoint') return 'paid_plan_required';
