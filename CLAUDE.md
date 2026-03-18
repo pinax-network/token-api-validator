@@ -1,6 +1,6 @@
 # Token API Validator
 
-Validation service that compares Token API responses against reference providers (block explorers) to track data accuracy over time.
+Validation service that compares Token API responses against reference providers (block explorers and on-chain RPC) to track data accuracy over time.
 
 ## Stack
 
@@ -36,6 +36,7 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/providers/token-api.ts` — Fetches our Token API (metadata + balances)
 - `src/providers/blockscout.ts` — Fetches from Blockscout explorers (metadata + balances)
 - `src/providers/etherscan.ts` — Fetches from Etherscan V2 unified API (metadata + balances)
+- `src/providers/rpc.ts` — Reads ERC-20 metadata directly from smart contracts via JSON-RPC `eth_call`
 - `src/registry.ts` — Graph Network Registry sync for reference provider discovery
 - `src/metrics.ts` — Prometheus metric definitions (shared across modules)
 - `src/storage/clickhouse.ts` — ClickHouse client, insert/query functions, `tallyCounts()` helper
@@ -62,8 +63,8 @@ Providers normalize **data representation** (e.g. `scaleDown` converts raw integ
 - Tolerances are defined in `src/validator.ts` as `TOLERANCES: Record<string, FieldTolerance>`. Adding a field means adding one entry — any domain, any field. Balance comparisons use ±1% relative tolerance, same as `total_supply`.
 - Null reasons (`our_null_reason`, `reference_null_reason`) are tracked per-entry via `ComparableEntry.null_reason`. The `NullReason` type in `src/providers/types.ts` enumerates all valid values. Provider errors (rate_limited, forbidden, etc.) are excluded from accuracy; `empty` (provider succeeded but returned no data) counts as a mismatch. The `runs` table stores aggregate counts across all domains (`matches + mismatches + nulls = comparisons`); per-domain counts are computed from the `comparisons` table via views.
 - `total_supply` is stored as string for big number precision, compared numerically with relative tolerance. Our API field is `circulating_supply` (misnamed, represents total supply). Reference providers normalize raw integers to human-readable via `scaleDown()` in their `fetchMetadata()` methods before returning to the comparator.
-- Blockscout URLs and chain IDs are discovered via The Graph Network Registry (`@pinax/graph-networks-registry`), with hardcoded defaults as fallback. Etherscan uses the V2 unified endpoint (`api.etherscan.io/v2/api?chainid=...`) with a single API key across all chains.
-- The `provider` column in comparisons records the actual reference provider used (`blockscout` or `etherscan`), not a generic name. Request URLs are stored in `our_url` and `reference_url` for reproducibility — API keys are stripped before storage.
+- Blockscout URLs, chain IDs, and RPC URLs are discovered via The Graph Network Registry (`@pinax/graph-networks-registry`), with hardcoded defaults as fallback. Etherscan uses the V2 unified endpoint (`api.etherscan.io/v2/api?chainid=...`) with a single API key across all chains. RPC URLs prefer Pinax RPCs (`*.rpc.service.pinax.network`), falling back to the first available URL from the registry.
+- The `provider` column in comparisons records the actual reference provider used (`blockscout`, `etherscan`, or `rpc`), not a generic name. Request URLs are stored in `our_url` and `reference_url` for reproducibility — API keys are stripped before storage.
 - `TOKEN_API_JWT` is a bearer JWT, not an API key.
 - Etherscan V2 uses `token/tokeninfo` for metadata and `token/topholders` for balances (both require paid plan). `topholders` is throttled to 2 calls/sec regardless of plan tier. Error parsing in `parseEtherscanError()` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying it.
 - All available reference providers are queried per network (not just a preferred one). Token API is batch-fetched per network (comma-separated `contract` param, chunked at 100, with individual fallback on HTTP error); reference provider fetches are parallel within a token (Blockscout and Etherscan are independent services). Networks are processed sequentially to avoid Etherscan's global 2 calls/sec rate limit on `topholders`. HTTP 429 responses are retried with exponential backoff via `withRetry`'s `shouldRetry` predicate. On exhaustion, the response is returned (not thrown), so the provider's normal error handling maps it to `null_reason: 'rate_limited'`. Network errors (socket failures, DNS) still throw on exhaustion and surface as run-level errors.

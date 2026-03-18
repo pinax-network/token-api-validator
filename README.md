@@ -1,6 +1,6 @@
 # Token API Validator
 
-Validation service that tracks the accuracy of [Token API](https://token-api.thegraph.com) data by comparing responses against reference providers (Etherscan, Blockscout).
+Validation service that tracks the accuracy of [Token API](https://token-api.thegraph.com) data by comparing responses against reference providers (Etherscan, Blockscout, RPC).
 
 Runs on a schedule, stores results in ClickHouse, and exposes Prometheus metrics for Grafana dashboards.
 
@@ -195,6 +195,7 @@ erDiagram
         DateTime our_fetched_at
         DateTime reference_fetched_at
         DateTime our_block_timestamp
+        DateTime reference_block_timestamp
         String our_url
         String reference_url
         String our_null_reason
@@ -232,4 +233,4 @@ Also includes `accuracy_by_field` and `accuracy_by_network` views (same pattern 
 - `bun run fetch-tokens` — Refresh `tokens.json` from CoinGecko (top tokens by market cap)
 - `bun run init-db` — Create ClickHouse tables and views (idempotent)
 
-Blockscout URLs and chain IDs are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains.
+Blockscout URLs, chain IDs, and RPC URLs are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains.

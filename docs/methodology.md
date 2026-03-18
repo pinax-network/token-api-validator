@@ -1,6 +1,6 @@
 # Validation Methodology
 
-The Token API Validator measures data accuracy by comparing Token API responses against reference blockchain explorers. It validates two independent domains — **token metadata** and **holder balances** — each with its own storage, metrics, and regression tracking.
+The Token API Validator measures data accuracy by comparing Token API responses against reference providers (block explorers and on-chain RPC). It validates two independent domains — **token metadata** and **holder balances** — each with its own storage, metrics, and regression tracking.
 
 ## Token Set
 
@@ -12,8 +12,18 @@ The reference set is the **top 500 coins by global market cap** from CoinGecko �
 |----------|---------|-----------------|----------------|
 | Blockscout | No | name, symbol, decimals, total_supply | holder balances (top holders) |
 | Etherscan V2 | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
+| RPC | No | name, symbol, decimals, total_supply | holder balances (via `balanceOf`) |
 
-Explorer URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available explorers are queried per network** — a single token may produce comparison rows from both Blockscout and Etherscan. Networks with no known explorer are skipped.
+Explorer URLs and RPC URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available providers are queried per network** — a single token may produce comparison rows from Blockscout, Etherscan, and RPC. Networks with no known provider are skipped.
+
+### RPC — on-chain ground truth
+
+RPC reads ERC-20 metadata directly from smart contracts, providing on-chain ground truth for `name`, `symbol`, `decimals`, and `total_supply`. Unlike explorer APIs, these values come straight from the contract state at a known block.
+
+RPC serves a dual purpose in the validator:
+
+1. **Pipeline validation** — Since our Token API data pipeline itself ingests from RPC, comparing Token API vs RPC isolates pipeline issues (indexing bugs, transformation errors) from source disagreements. Any mismatch against RPC — after accounting for lag — is a real pipeline defect.
+2. **Reference provider lag estimation** — The `reference_block_timestamp` from RPC represents the chain head at query time. Comparing this against explorer timestamps reveals how stale each reference provider's data is, helping distinguish genuine mismatches from lag artifacts.
 
 ---
 
