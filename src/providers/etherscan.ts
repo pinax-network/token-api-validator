@@ -42,13 +42,19 @@ interface TopHolderEntry {
  * Matches exact strings from https://docs.etherscan.io/resources/common-error-messages
  */
 export function parseEtherscanError(result: string): NullReason {
-    if (result === 'Missing/Invalid API Key') return 'paid_plan_required';
-    if (result === 'Invalid API Key') return 'forbidden';
-    if (result === 'API key not eligible for this endpoint') return 'paid_plan_required';
-    if (result === 'Max rate limit reached') return 'rate_limited';
-    if (result === 'Max calls per sec rate limit reached (5/sec)') return 'rate_limited';
-    if (result.includes('Missing Or invalid Action name')) return 'server_error';
-    if (result.includes('No token found')) return 'not_found';
+    const lower = result.toLowerCase();
+    if (lower.includes('invalid api key') || lower.includes('missing/invalid api key')) return 'forbidden';
+    if (lower.includes('not eligible') || lower.includes('not supported for this chain')) return 'paid_plan_required';
+    if (lower.includes('rate limit')) return 'rate_limited';
+    if (lower.includes('timeout')) return 'timeout';
+    if (
+        lower.includes('not found') ||
+        lower.includes('no token found') ||
+        lower.includes('invalid address') ||
+        lower.includes('invalid contract address')
+    )
+        return 'not_found';
+    if (lower.includes('missing or invalid')) return 'server_error';
     return 'server_error';
 }
 
