@@ -4,9 +4,10 @@ import { logger } from './logger.js';
 import { runDuration, runsTotal, tokensChecked } from './metrics.js';
 import { BlockscoutProvider } from './providers/blockscout.js';
 import { EtherscanProvider } from './providers/etherscan.js';
+import { RpcProvider } from './providers/rpc.js';
 import { TokenApiProvider } from './providers/token-api.js';
 import type { Provider, ProviderResult, TokenReference } from './providers/types.js';
-import { getAvailableProviders, syncRegistry } from './registry.js';
+import { syncRegistry } from './registry.js';
 import {
     type ComparisonRecord,
     insertComparisons,
@@ -84,6 +85,7 @@ function buildComparisonRecords(
             our_fetched_at: formatDateTime(ours.fetched_at),
             reference_fetched_at: formatDateTime(ref.fetched_at),
             our_block_timestamp: ours.block_timestamp ? formatDateTime(ours.block_timestamp) : null,
+            reference_block_timestamp: ref.block_timestamp ? formatDateTime(ref.block_timestamp) : null,
             our_url: ours.url,
             reference_url: ref.url,
             our_null_reason: ourEntry.null_reason,
@@ -102,28 +104,34 @@ async function validateToken(
     runAt: string
 ): Promise<{ records: ComparisonRecord[]; error: boolean }> {
     const { network, contract } = token;
+    // Populated after Token API balance fetch; RPC's fetchBalances closure reads this via late binding
+    let holders: string[] = [];
     const domains: ProviderFetch[] = [
         (p) => p.fetchMetadata(network, contract),
-        (p) => p.fetchBalances(network, contract),
+        (p) => p.fetchBalances(network, contract, holders),
     ];
 
     try {
         const allRecords: ComparisonRecord[] = [];
 
-        for (const fetch of domains) {
-            const [ours, ...refs] = await Promise.allSettled([fetch(tokenApi), ...references.map((ref) => fetch(ref))]);
-
-            if (ours.status === 'rejected') {
-                logger.warn(`Our fetch failed for ${token.symbol} on ${network}: ${ours.reason}`);
+        for (const fetchDomain of domains) {
+            let ours: ProviderResult;
+            try {
+                ours = await fetchDomain(tokenApi);
+            } catch (error) {
+                logger.warn(`Our fetch failed for ${token.symbol} on ${network}: ${error}`);
                 continue;
             }
+
+            holders = ours.entries.filter((e) => e.entity).map((e) => e.entity);
+            const refs = await Promise.allSettled(references.map((ref) => fetchDomain(ref)));
 
             for (const ref of refs) {
                 if (ref.status === 'rejected') {
                     logger.warn(`Reference fetch failed for ${token.symbol} on ${network}: ${ref.reason}`);
                     continue;
                 }
-                allRecords.push(...buildComparisonRecords(token, ours.value, ref.value, runId, runAt));
+                allRecords.push(...buildComparisonRecords(token, ours, ref.value, runId, runAt));
             }
         }
 
@@ -215,23 +223,19 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         }
 
         const tokenApi = new TokenApiProvider();
-        const blockscout = new BlockscoutProvider();
-        const etherscan = new EtherscanProvider();
+        const allProviders: Provider[] = [new BlockscoutProvider(), new EtherscanProvider(), new RpcProvider()];
 
         const allRecords: ComparisonRecord[] = [];
         let totalErrors = 0;
         let numTokensChecked = 0;
 
         for (const [network, networkTokens] of byNetwork) {
-            const choices = getAvailableProviders(network);
-            if (choices.length === 0) {
+            const references = allProviders.filter((p) => p.supportsNetwork(network));
+            if (references.length === 0) {
                 logger.warn(`No reference provider available for network ${network}, skipping`);
                 totalErrors += networkTokens.length;
                 continue;
             }
-            const references: Provider[] = choices.map((choice) =>
-                choice.kind === 'blockscout' ? blockscout : etherscan
-            );
 
             try {
                 const result = await validateNetwork(networkTokens, tokenApi, references, runId, runAt);
