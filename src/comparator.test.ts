@@ -1,8 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
 
-mock.module('./config.js', () => ({
-    config: { verbose: false, prettyLogging: false },
-}));
 mock.module('./logger.js', () => ({
     logger: { warn: () => {}, error: () => {}, info: () => {} },
 }));
