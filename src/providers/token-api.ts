@@ -34,6 +34,11 @@ const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 /** Fetches token metadata and balances from the Pinax Token API. */
 export class TokenApiProvider implements Provider {
     name = 'token-api';
+
+    supportsNetwork(_network: string): boolean {
+        return true;
+    }
+
     private metadataCache = new Map<string, ProviderResult>();
 
     async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {

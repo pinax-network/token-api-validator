@@ -62,6 +62,11 @@ const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
  */
 export class EtherscanProvider implements Provider {
     name = 'etherscan';
+
+    supportsNetwork(network: string): boolean {
+        return getChainId(network) !== null;
+    }
+
     private decimalsLookup = new Map<string, number>();
 
     private lookupKey(network: string, contract: string): string {

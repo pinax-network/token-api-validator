@@ -3,14 +3,11 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { withRetry } from './utils/retry.js';
 
-/** Available reference providers for a network: Blockscout URL and/or EVM chain ID (for Etherscan V2). */
-export interface NetworkProviders {
+interface NetworkProviders {
     blockscout_url: string | null;
     chain_id: number | null;
+    rpc_urls: string[];
 }
-
-/** A single reference provider option — either a Blockscout URL or an Etherscan chain ID. */
-export type ProviderChoice = { kind: 'blockscout'; url: string } | { kind: 'etherscan'; chain_id: number };
 
 // Network ID mapping: CoinGecko platform → Token API network ID
 export const PLATFORM_TO_NETWORK: Record<string, string> = {
@@ -33,14 +30,14 @@ const REGISTRY_TO_NETWORK: Record<string, string> = {
 
 // Sensible defaults — used before first registry sync and as the canonical list of supported networks
 const DEFAULTS: Record<string, NetworkProviders> = {
-    mainnet: { blockscout_url: 'https://eth.blockscout.com/api', chain_id: 1 },
-    base: { blockscout_url: 'https://base.blockscout.com/api', chain_id: 8453 },
-    'arbitrum-one': { blockscout_url: 'https://arbitrum.blockscout.com/api', chain_id: 42161 },
-    bsc: { blockscout_url: null, chain_id: 56 },
-    polygon: { blockscout_url: 'https://polygon.blockscout.com/api', chain_id: 137 },
-    optimism: { blockscout_url: 'https://optimism.blockscout.com/api', chain_id: 10 },
-    avalanche: { blockscout_url: null, chain_id: 43114 },
-    unichain: { blockscout_url: null, chain_id: 130 },
+    mainnet: { blockscout_url: 'https://eth.blockscout.com/api', chain_id: 1, rpc_urls: [] },
+    base: { blockscout_url: 'https://base.blockscout.com/api', chain_id: 8453, rpc_urls: [] },
+    'arbitrum-one': { blockscout_url: 'https://arbitrum.blockscout.com/api', chain_id: 42161, rpc_urls: [] },
+    bsc: { blockscout_url: null, chain_id: 56, rpc_urls: [] },
+    polygon: { blockscout_url: 'https://polygon.blockscout.com/api', chain_id: 137, rpc_urls: [] },
+    optimism: { blockscout_url: 'https://optimism.blockscout.com/api', chain_id: 10, rpc_urls: [] },
+    avalanche: { blockscout_url: null, chain_id: 43114, rpc_urls: [] },
+    unichain: { blockscout_url: null, chain_id: 130, rpc_urls: [] },
 };
 
 // Synced from registry at startup and before each validation run
@@ -56,22 +53,10 @@ export function getChainId(network: string): number | null {
     return providerMap[network]?.chain_id ?? null;
 }
 
-/** Return all available reference providers for a network (Blockscout and/or Etherscan). */
-export function getAvailableProviders(network: string): ProviderChoice[] {
-    const info = providerMap[network];
-    if (!info) return [];
-
-    const providers: ProviderChoice[] = [];
-
-    if (info.blockscout_url) {
-        providers.push({ kind: 'blockscout', url: info.blockscout_url });
-    }
-
-    if (info.chain_id != null) {
-        providers.push({ kind: 'etherscan', chain_id: info.chain_id });
-    }
-
-    return providers;
+/** Look up the best RPC URL for a network. Prefers Pinax RPCs, falls back to first available. */
+export function getRpcUrl(network: string): string | null {
+    const urls = providerMap[network]?.rpc_urls ?? [];
+    return urls.find((u) => u.includes('.rpc.service.pinax.network')) ?? urls[0] ?? null;
 }
 
 /** Parse a chain ID from a CAIP-2 identifier (e.g. "eip155:1" → 1). */
@@ -105,6 +90,10 @@ export async function syncRegistry(): Promise<void> {
                 if (apiUrl.kind === 'blockscout' && apiUrl.url) {
                     updated[networkId].blockscout_url = apiUrl.url;
                 }
+            }
+
+            if (network.rpcUrls && network.rpcUrls.length > 0) {
+                updated[networkId].rpc_urls = network.rpcUrls;
             }
         }
 

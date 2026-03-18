@@ -39,6 +39,10 @@ const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 export class BlockscoutProvider implements Provider {
     name = 'blockscout';
 
+    supportsNetwork(network: string): boolean {
+        return getBlockscoutUrl(network) !== null;
+    }
+
     /** Derive REST v2 base from the RPC-style URL returned by the registry. */
     private v2Base(network: string): string {
         const baseUrl = getBlockscoutUrl(network);
