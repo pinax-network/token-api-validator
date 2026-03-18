@@ -1,10 +1,13 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { compareField, type FieldTolerance } from './comparator.js';
 
-// Silence logger warnings during tests (e.g. non-numeric comparison)
+mock.module('./config.js', () => ({
+    config: { verbose: false, prettyLogging: false },
+}));
 mock.module('./logger.js', () => ({
     logger: { warn: () => {}, error: () => {}, info: () => {} },
 }));
+
+import { compareField, type FieldTolerance } from './comparator.js';
 
 const exact: FieldTolerance = { type: 'exact' };
 const exactNorm: FieldTolerance = { type: 'exact', normalize: true };
