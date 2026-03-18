@@ -24,15 +24,21 @@ export interface ProviderResult {
     response_time_ms: number;
     url: string;
     provider: string;
-    block_timestamp: Date | null;
+    block_number?: number | null;
+    block_timestamp?: Date | null;
 }
 
 /** Contract that all providers (Token API, Blockscout, Etherscan, RPC) implement. */
 export interface Provider {
     name: string;
     supportsNetwork(network: string): boolean;
-    fetchMetadata(network: string, contract: string): Promise<ProviderResult>;
-    fetchBalances(network: string, contract: string, holders?: string[]): Promise<ProviderResult>;
+    fetchMetadata(network: string, contract: string, blockNumber?: number | null): Promise<ProviderResult>;
+    fetchBalances(
+        network: string,
+        contract: string,
+        holders?: string[],
+        blockNumber?: number | null
+    ): Promise<ProviderResult>;
 }
 
 /** Map an HTTP status code to a null_reason value. */

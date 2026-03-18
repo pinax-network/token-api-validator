@@ -42,7 +42,7 @@ export class RpcProvider implements Provider {
         return getRpcUrl(network) !== null;
     }
 
-    async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
+    async fetchMetadata(network: string, contract: string, blockNumber?: number | null): Promise<ProviderResult> {
         const rpcUrl = getRpcUrl(network);
         if (!rpcUrl) {
             return {
@@ -71,14 +71,14 @@ export class RpcProvider implements Provider {
         });
         const address = contract as Address;
 
-        const blockNumber = await client.getBlockNumber();
+        const resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
 
         const [nameResult, symbolResult, decimalsResult, totalSupplyResult, blockResult] = await Promise.allSettled([
-            readStringField(client, address, 'name', blockNumber),
-            readStringField(client, address, 'symbol', blockNumber),
-            client.readContract({ address, abi: erc20Abi, functionName: 'decimals', blockNumber }),
-            client.readContract({ address, abi: erc20Abi, functionName: 'totalSupply', blockNumber }),
-            client.getBlock({ blockNumber }),
+            readStringField(client, address, 'name', resolvedBlock),
+            readStringField(client, address, 'symbol', resolvedBlock),
+            client.readContract({ address, abi: erc20Abi, functionName: 'decimals', blockNumber: resolvedBlock }),
+            client.readContract({ address, abi: erc20Abi, functionName: 'totalSupply', blockNumber: resolvedBlock }),
+            client.getBlock({ blockNumber: resolvedBlock }),
         ]);
 
         const responseTimeMs = Date.now() - start;
@@ -165,7 +165,12 @@ export class RpcProvider implements Provider {
         };
     }
 
-    async fetchBalances(network: string, contract: string, holders?: string[]): Promise<ProviderResult> {
+    async fetchBalances(
+        network: string,
+        contract: string,
+        holders?: string[],
+        blockNumber?: number | null
+    ): Promise<ProviderResult> {
         const rpcUrl = getRpcUrl(network);
         if (!rpcUrl || !holders || holders.length === 0) {
             return {
@@ -189,7 +194,7 @@ export class RpcProvider implements Provider {
         });
         const address = contract as Address;
 
-        const blockNumber = await client.getBlockNumber();
+        const resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
 
         const [balanceResults, blockResult] = await Promise.all([
             Promise.allSettled(
@@ -199,11 +204,11 @@ export class RpcProvider implements Provider {
                         abi: erc20BalanceAbi,
                         functionName: 'balanceOf',
                         args: [holder as Address],
-                        blockNumber,
+                        blockNumber: resolvedBlock,
                     })
                 )
             ),
-            client.getBlock({ blockNumber }).catch(() => null),
+            client.getBlock({ blockNumber: resolvedBlock }).catch(() => null),
         ]);
 
         const responseTimeMs = Date.now() - start;

@@ -72,7 +72,6 @@ export class BlockscoutProvider implements Provider {
             response_time_ms: responseTimeMs,
             url,
             provider: 'blockscout',
-            block_timestamp: null,
         };
 
         if (!response.ok) {
@@ -184,7 +183,6 @@ export class BlockscoutProvider implements Provider {
                 response_time_ms: responseTimeMs,
                 url: holdersUrl,
                 provider: 'blockscout',
-                block_timestamp: null,
             };
         }
 
@@ -195,7 +193,6 @@ export class BlockscoutProvider implements Provider {
             response_time_ms: responseTimeMs,
             url: holdersUrl,
             provider: 'blockscout',
-            block_timestamp: null,
         };
     }
 }

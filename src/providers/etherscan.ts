@@ -95,7 +95,6 @@ export class EtherscanProvider implements Provider {
             response_time_ms: responseTimeMs,
             url: result.url,
             provider: 'etherscan',
-            block_timestamp: null,
         };
 
         if (!result.ok) {
@@ -165,7 +164,6 @@ export class EtherscanProvider implements Provider {
                 response_time_ms: 0,
                 url: '',
                 provider: 'etherscan',
-                block_timestamp: null,
             };
         }
 
@@ -191,7 +189,6 @@ export class EtherscanProvider implements Provider {
             response_time_ms: responseTimeMs,
             url: storedUrl,
             provider: 'etherscan',
-            block_timestamp: null,
         };
 
         if (!result.ok) {

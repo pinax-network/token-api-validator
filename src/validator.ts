@@ -99,11 +99,12 @@ async function validateToken(
     runAt: string
 ): Promise<{ records: ComparisonRecord[]; error: boolean }> {
     const { network, contract } = token;
-    // Populated after Token API balance fetch; RPC's fetchBalances closure reads this via late binding
+    // Populated after each Token API fetch; RPC closures read these via late binding
     let holders: string[] = [];
+    let blockNumber: number | null = null;
     const domains: ProviderFetch[] = [
-        (p) => p.fetchMetadata(network, contract),
-        (p) => p.fetchBalances(network, contract, holders),
+        (p) => p.fetchMetadata(network, contract, blockNumber),
+        (p) => p.fetchBalances(network, contract, holders, blockNumber),
     ];
 
     try {
@@ -119,6 +120,7 @@ async function validateToken(
             }
 
             holders = ours.entries.filter((e) => e.entity).map((e) => e.entity);
+            blockNumber = ours.block_number ?? null;
             const refs = await Promise.allSettled(references.map((ref) => fetchDomain(ref)));
 
             for (const ref of refs) {
