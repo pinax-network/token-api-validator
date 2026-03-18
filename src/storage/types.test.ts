@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type ComparisonRecord, tallyCounts } from './clickhouse.js';
+import { type ComparisonRecord, tallyCounts } from './types.js';
 
 function record(overrides: Partial<ComparisonRecord> = {}): ComparisonRecord {
     return {

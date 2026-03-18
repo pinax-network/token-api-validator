@@ -8,13 +8,8 @@ import { RpcProvider } from './providers/rpc.js';
 import { TokenApiProvider } from './providers/token-api.js';
 import type { Provider, ProviderResult, TokenReference } from './providers/types.js';
 import { syncRegistry } from './registry.js';
-import {
-    type ComparisonRecord,
-    insertComparisons,
-    insertRun,
-    type RunRecord,
-    tallyCounts,
-} from './storage/clickhouse.js';
+import { insertComparisons, insertRun } from './storage/clickhouse.js';
+import { type ComparisonRecord, type RunRecord, tallyCounts } from './storage/types.js';
 
 const TOLERANCES: Record<string, FieldTolerance> = {
     name: { type: 'exact', normalize: true },
