@@ -39,7 +39,8 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/providers/rpc.ts` — Reads ERC-20 metadata directly from smart contracts via JSON-RPC `eth_call`
 - `src/registry.ts` — Graph Network Registry sync for reference provider discovery
 - `src/metrics.ts` — Prometheus metric definitions (shared across modules)
-- `src/storage/clickhouse.ts` — ClickHouse client, insert/query functions, `tallyCounts()` helper
+- `src/storage/clickhouse.ts` — ClickHouse client, insert/query functions
+- `src/storage/types.ts` — `ComparisonRecord`, `RunRecord` interfaces, `tallyCounts()` helper
 - `src/scheduler.ts` — croner-based cron scheduling
 - `src/utils/retry.ts` — Shared retry with exponential backoff
 - `src/utils/normalize.ts` — String normalization, `scaleDown` (raw → human-readable), `scaleUp` (human-readable → raw)
@@ -66,7 +67,7 @@ Providers normalize **data representation** (e.g. `scaleDown` converts raw integ
 - Blockscout URLs, chain IDs, and RPC URLs are discovered via The Graph Network Registry (`@pinax/graph-networks-registry`), with hardcoded defaults as fallback. Etherscan uses the V2 unified endpoint (`api.etherscan.io/v2/api?chainid=...`) with a single API key across all chains. RPC URLs prefer Pinax RPCs (`*.rpc.service.pinax.network`), falling back to the first available URL from the registry.
 - The `provider` column in comparisons records the actual reference provider used (`blockscout`, `etherscan`, or `rpc`), not a generic name. Request URLs are stored in `our_url` and `reference_url` for reproducibility — API keys are stripped before storage.
 - `TOKEN_API_JWT` is a bearer JWT, not an API key.
-- Etherscan V2 uses `token/tokeninfo` for metadata and `token/topholders` for balances (both require paid plan). `topholders` is throttled to 2 calls/sec regardless of plan tier. Error parsing in `parseEtherscanError()` matches exact documented error strings from https://docs.etherscan.io/resources/common-error-messages — update that reference when modifying it.
+- Etherscan V2 uses `token/tokeninfo` for metadata and `token/topholders` for balances (both require paid plan). `topholders` is throttled to 2 calls/sec regardless of plan tier. Error parsing in `parseEtherscanError()` uses case-insensitive `includes()` matching to handle inconsistent error messages across chains (Etherscan, BSCScan, Snowtrace all return slightly different wording via the V2 unified endpoint).
 - All available reference providers are queried per network (not just a preferred one). Token API is batch-fetched per network (comma-separated `contract` param, chunked at 100, with individual fallback on HTTP error); reference provider fetches are parallel within a token (Blockscout and Etherscan are independent services). Networks are processed sequentially to avoid Etherscan's global 2 calls/sec rate limit on `topholders`. HTTP 429 responses are retried with exponential backoff via `withRetry`'s `shouldRetry` predicate. On exhaustion, the response is returned (not thrown), so the provider's normal error handling maps it to `null_reason: 'rate_limited'`. Network errors (socket failures, DNS) still throw on exhaustion and surface as run-level errors.
 
 ## Methodology and metric definitions
