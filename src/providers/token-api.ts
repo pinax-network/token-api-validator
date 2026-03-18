@@ -1,45 +1,51 @@
+import { type EvmHoldersResponse, type EvmNetwork, type EvmTokensResponse, TokenAPI } from '@pinax/token-api';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import { type ComparableEntry, httpStatusToNullReason, type Provider, type ProviderResult } from './types.js';
-
-interface TokenApiResponse {
-    data: Array<{
-        contract: string;
-        name: string;
-        symbol: string;
-        decimals: number;
-        circulating_supply: number;
-        holders: number;
-        total_transfers: number;
-        network: string;
-        last_update_timestamp: number;
-        last_update_block_num: number;
-    }>;
-}
-
-/** Token API `/v1/evm/holders` response. */
-interface TokenApiHoldersResponse {
-    data: Array<{
-        address: string;
-        amount: string;
-        last_update_timestamp: number;
-    }>;
-}
+import type { ComparableEntry, NullReason, Provider, ProviderResult } from './types.js';
 
 const BATCH_LIMIT = 100;
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
+/** Extract HTTP status from SDK error message (format: `API Error: {"status":429,...}`). */
+export function parseErrorStatus(error: unknown): number | null {
+    const msg = error instanceof Error ? error.message : '';
+    const match = msg.match(/API Error: (\{.*\})/);
+    if (!match?.[1]) return null;
+    try {
+        return (JSON.parse(match[1]) as { status?: number }).status ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** shouldRetry predicate: retry if the result is a retryable error (429, 5xx, network). */
+export function isRetryableResult(result: unknown): boolean {
+    if (!(result instanceof Error)) return false;
+    const status = parseErrorStatus(result);
+    if (status === null) return true; // network error — retry
+    return status === 429 || status >= 500;
+}
+
+function errorEntries(fields: readonly string[], reason: NullReason): ComparableEntry[] {
+    return fields.map((f) => ({
+        field: f,
+        entity: '',
+        value: null,
+        null_reason: reason,
+    }));
+}
+
 /** Fetches token metadata and balances from the Pinax Token API. */
 export class TokenApiProvider implements Provider {
     name = 'token-api';
+    private client = new TokenAPI({ apiToken: config.tokenApiJwt, baseUrl: config.tokenApiBaseUrl });
+    private metadataCache = new Map<string, ProviderResult>();
 
     supportsNetwork(_network: string): boolean {
         return true;
     }
-
-    private metadataCache = new Map<string, ProviderResult>();
 
     async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
         const key = `${network}:${contract.toLowerCase()}`;
@@ -74,47 +80,33 @@ export class TokenApiProvider implements Provider {
 
     async fetchBalances(network: string, contract: string): Promise<ProviderResult> {
         const url = `${config.tokenApiBaseUrl}/v1/evm/holders?network=${network}&contract=${contract}&limit=100`;
-        const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
 
         const start = Date.now();
-        const response = await withRetry(
-            () => fetch(url, { headers }),
-            {
-                maxAttempts: config.retryMaxAttempts,
-                baseDelay: config.retryBaseDelayMs,
-                shouldRetry: (res) => res.status === 429,
-            },
-            `token-api:balances:${network}:${contract}`
-        );
-        const responseTimeMs = Date.now() - start;
-        providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
-        providerRequests.inc({
-            provider: 'token-api',
-            network,
-            endpoint: 'balance',
-            status: response.ok ? 'success' : 'error',
-        });
-
-        const base = {
-            domain: 'balance',
-            fetched_at: new Date(),
-            response_time_ms: responseTimeMs,
-            url,
-            provider: this.name,
-            block_timestamp: null as Date | null,
-        };
-
-        if (!response.ok) {
-            logger.warn(`Token API balances returned ${response.status} for ${network}:${contract}`);
+        let body: EvmHoldersResponse;
+        try {
+            body = await this.callWithRetry(
+                () => this.client.evm.tokens.getHolders({ network: network as EvmNetwork, contract, limit: 100 }),
+                `token-api:balances:${network}:${contract}`
+            );
+        } catch (error) {
+            const responseTimeMs = Date.now() - start;
+            providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
+            providerRequests.inc({ provider: 'token-api', network, endpoint: 'balance', status: 'error' });
+            logger.warn(`Token API balances failed for ${network}:${contract}: ${error}`);
             return {
-                ...base,
-                entries: [
-                    { field: 'balance', entity: '', value: null, null_reason: httpStatusToNullReason(response.status) },
-                ],
+                domain: 'balance',
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url,
+                provider: this.name,
+                entries: [{ field: 'balance', entity: '', value: null, null_reason: 'server_error' }],
             };
         }
 
-        const body = (await response.json()) as TokenApiHoldersResponse;
+        const responseTimeMs = Date.now() - start;
+        providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
+        providerRequests.inc({ provider: 'token-api', network, endpoint: 'balance', status: 'success' });
+
         const entries: ComparableEntry[] = (body.data ?? []).map((entry) => ({
             field: 'balance',
             entity: entry.address.toLowerCase(),
@@ -122,72 +114,71 @@ export class TokenApiProvider implements Provider {
             null_reason: null,
         }));
 
-        const firstEntry = body.data?.[0];
-        base.block_timestamp = firstEntry?.last_update_timestamp
-            ? new Date(firstEntry.last_update_timestamp * 1000)
-            : null;
-
         if (entries.length === 0) {
-            return { ...base, entries: [{ field: 'balance', entity: '', value: null, null_reason: 'empty' }] };
+            return {
+                domain: 'balance',
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url,
+                provider: this.name,
+                entries: [{ field: 'balance', entity: '', value: null, null_reason: 'empty' }],
+            };
         }
 
-        return { ...base, entries };
-    }
-
-    private async fetchMetadataSingle(network: string, contract: string): Promise<ProviderResult> {
-        const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
-        const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
-
-        const start = Date.now();
-        const response = await withRetry(
-            () => fetch(url, { headers }),
-            {
-                maxAttempts: config.retryMaxAttempts,
-                baseDelay: config.retryBaseDelayMs,
-                shouldRetry: (res) => res.status === 429,
-            },
-            `token-api:${network}:${contract}`
-        );
-        const responseTimeMs = Date.now() - start;
-        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
-        providerRequests.inc({
-            provider: 'token-api',
-            network,
-            endpoint: 'metadata',
-            status: response.ok ? 'success' : 'error',
-        });
-
-        const base = {
-            domain: 'metadata',
+        const firstEntry = body.data[0];
+        return {
+            domain: 'balance',
+            entries,
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
-            block_timestamp: null as Date | null,
+            block_number: firstEntry?.last_update_block_num ?? null,
+            block_timestamp: firstEntry?.last_update_timestamp
+                ? new Date(firstEntry.last_update_timestamp * 1000)
+                : null,
         };
+    }
 
-        if (!response.ok) {
-            const reason = httpStatusToNullReason(response.status);
-            logger.warn(`Token API returned ${response.status} for ${network}:${contract}`);
+    private async fetchMetadataSingle(network: string, contract: string): Promise<ProviderResult> {
+        const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
+
+        const start = Date.now();
+        let body: EvmTokensResponse;
+        try {
+            body = await this.callWithRetry(
+                () => this.client.evm.tokens.getTokenMetadata({ network: network as EvmNetwork, contract }),
+                `token-api:${network}:${contract}`
+            );
+        } catch (error) {
+            const responseTimeMs = Date.now() - start;
+            providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
+            providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
+            logger.warn(`Token API returned error for ${network}:${contract}: ${error}`);
             return {
-                ...base,
-                entries: METADATA_FIELDS.map((f) => ({ field: f, entity: '', value: null, null_reason: reason })),
+                domain: 'metadata',
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url,
+                provider: this.name,
+                entries: errorEntries(METADATA_FIELDS, 'server_error'),
             };
         }
 
-        const body = (await response.json()) as TokenApiResponse;
-        const token = body.data?.[0];
+        const responseTimeMs = Date.now() - start;
+        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
+        providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'success' });
 
+        const token = body.data?.[0];
         if (!token) {
             logger.warn(`Token API returned empty data for ${network}:${contract}`);
             return {
-                ...base,
-                entries: METADATA_FIELDS.map((f) => ({
-                    field: f,
-                    entity: '',
-                    value: null,
-                    null_reason: 'empty' as const,
-                })),
+                domain: 'metadata',
+                fetched_at: new Date(),
+                response_time_ms: responseTimeMs,
+                url,
+                provider: this.name,
+                entries: errorEntries(METADATA_FIELDS, 'empty'),
             };
         }
 
@@ -195,27 +186,20 @@ export class TokenApiProvider implements Provider {
     }
 
     private async fetchChunk(network: string, contracts: string[]): Promise<void> {
-        const batchUrl = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contracts.join(',')}`;
-        const headers = { Authorization: `Bearer ${config.tokenApiJwt}` };
-
         const start = Date.now();
-        const response = await withRetry(
-            () => fetch(batchUrl, { headers }),
-            {
-                maxAttempts: config.retryMaxAttempts,
-                baseDelay: config.retryBaseDelayMs,
-                shouldRetry: (res) => res.status === 429,
-            },
-            `token-api:${network}:batch(${contracts.length})`
-        );
-        const responseTimeMs = Date.now() - start;
-        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
-
-        if (!response.ok) {
+        let body: EvmTokensResponse;
+        try {
+            body = await this.callWithRetry(
+                () => this.client.evm.tokens.getTokenMetadata({ network: network as EvmNetwork, contract: contracts }),
+                `token-api:${network}:batch(${contracts.length})`
+            );
+        } catch (error) {
+            const responseTimeMs = Date.now() - start;
+            providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
             batchRequests.inc({ provider: 'token-api', network, status: 'error' });
             batchFallbacks.inc({ provider: 'token-api', network });
             logger.warn(
-                `Token API batch returned ${response.status} for ${network} (${contracts.length} contracts), falling back to individual`
+                `Token API batch failed for ${network} (${contracts.length} contracts), falling back to individual: ${error}`
             );
             for (const contract of contracts) {
                 const result = await this.fetchMetadataSingle(network, contract);
@@ -224,13 +208,13 @@ export class TokenApiProvider implements Provider {
             return;
         }
 
+        const responseTimeMs = Date.now() - start;
+        providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
         batchRequests.inc({ provider: 'token-api', network, status: 'success' });
         batchSize.observe({ provider: 'token-api', network }, contracts.length);
 
-        const body = (await response.json()) as TokenApiResponse;
         const fetched_at = new Date();
-
-        const itemByContract = new Map<string, TokenApiResponse['data'][number]>();
+        const itemByContract = new Map<string, (typeof body.data)[number]>();
         for (const item of body.data ?? []) {
             itemByContract.set(item.contract.toLowerCase(), item);
         }
@@ -245,17 +229,11 @@ export class TokenApiProvider implements Provider {
                 providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
                 this.metadataCache.set(cacheKey, {
                     domain: 'metadata',
-                    entries: METADATA_FIELDS.map((f) => ({
-                        field: f,
-                        entity: '',
-                        value: null,
-                        null_reason: 'empty' as const,
-                    })),
+                    entries: errorEntries(METADATA_FIELDS, 'empty'),
                     fetched_at,
                     response_time_ms: responseTimeMs,
                     url: individualUrl,
                     provider: this.name,
-                    block_timestamp: null,
                 });
                 continue;
             }
@@ -265,8 +243,23 @@ export class TokenApiProvider implements Provider {
         }
     }
 
+    /** Call an SDK method with retry on transient errors (429, 5xx, network). Non-retryable errors throw immediately. */
+    private async callWithRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+        const result = await withRetry(
+            () => fn().catch((e: unknown) => e),
+            {
+                maxAttempts: config.retryMaxAttempts,
+                baseDelay: config.retryBaseDelayMs,
+                shouldRetry: isRetryableResult,
+            },
+            label
+        );
+        if (result instanceof Error) throw result;
+        return result as T;
+    }
+
     private buildResult(
-        token: TokenApiResponse['data'][number],
+        token: EvmTokensResponse['data'][number],
         url: string,
         fetched_at: Date,
         responseTimeMs: number
@@ -293,6 +286,7 @@ export class TokenApiProvider implements Provider {
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
+            block_number: token.last_update_block_num ?? null,
             block_timestamp: token.last_update_timestamp ? new Date(token.last_update_timestamp * 1000) : null,
         };
     }
