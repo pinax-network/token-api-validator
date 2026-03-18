@@ -20,6 +20,7 @@ function record(overrides: Partial<ComparisonRecord> = {}): ComparisonRecord {
         our_fetched_at: '2026-01-01 00:00:00',
         reference_fetched_at: '2026-01-01 00:00:00',
         our_block_timestamp: null,
+        reference_block_timestamp: null,
         our_url: '',
         reference_url: '',
         our_null_reason: null,

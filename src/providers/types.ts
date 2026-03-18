@@ -27,10 +27,12 @@ export interface ProviderResult {
     block_timestamp: Date | null;
 }
 
-/** Contract that all providers (Token API, Blockscout, Etherscan) implement. */
+/** Contract that all providers (Token API, Blockscout, Etherscan, RPC) implement. */
 export interface Provider {
+    name: string;
+    supportsNetwork(network: string): boolean;
     fetchMetadata(network: string, contract: string): Promise<ProviderResult>;
-    fetchBalances(network: string, contract: string): Promise<ProviderResult>;
+    fetchBalances(network: string, contract: string, holders?: string[]): Promise<ProviderResult>;
 }
 
 /** Map an HTTP status code to a null_reason value. */

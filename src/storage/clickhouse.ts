@@ -51,6 +51,7 @@ export interface ComparisonRecord {
     our_fetched_at: string;
     reference_fetched_at: string;
     our_block_timestamp: string | null;
+    reference_block_timestamp: string | null;
     our_url: string;
     reference_url: string;
     our_null_reason: string | null;
