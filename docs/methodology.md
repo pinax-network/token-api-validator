@@ -20,10 +20,7 @@ Explorer URLs and RPC URLs are resolved from [The Graph Network Registry](https:
 
 RPC reads ERC-20 metadata directly from smart contracts, providing on-chain ground truth for `name`, `symbol`, `decimals`, and `total_supply`. Unlike explorer APIs, these values come straight from the contract state at a known block.
 
-RPC serves a dual purpose in the validator:
-
-1. **Pipeline validation** — Since our Token API data pipeline itself ingests from RPC, comparing Token API vs RPC isolates pipeline issues (indexing bugs, transformation errors) from source disagreements. Any mismatch against RPC — after accounting for lag — is a real pipeline defect.
-2. **Reference provider lag estimation** — The `reference_block_timestamp` from RPC represents the chain head at query time. Comparing this against explorer timestamps reveals how stale each reference provider's data is, helping distinguish genuine mismatches from lag artifacts.
+Since our Token API data pipeline itself ingests from RPC, comparing Token API vs RPC isolates pipeline issues (indexing bugs, transformation errors) from source disagreements. RPC reads are pinned to the same block as Token API's last indexed block, so any mismatch is a real pipeline defect — not a timing artifact.
 
 ---
 

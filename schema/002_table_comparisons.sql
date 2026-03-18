@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS validation.comparisons (
     our_fetched_at       DateTime            COMMENT 'When our API was queried',
     reference_fetched_at DateTime            COMMENT 'When the reference provider was queried',
     our_block_timestamp  Nullable(DateTime)  COMMENT 'Last indexed block timestamp from our API (for freshness)',
-    reference_block_timestamp Nullable(DateTime) COMMENT 'Block timestamp from the reference provider (for lag estimation)',
     our_url              String              COMMENT 'Full request URL used for our API query',
     reference_url        String              COMMENT 'Full request URL used for the reference query',
     our_null_reason      Nullable(String)    COMMENT 'Why our value is null (empty, timeout, not_found, etc.)',

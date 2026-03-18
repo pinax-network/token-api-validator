@@ -195,7 +195,6 @@ erDiagram
         DateTime our_fetched_at
         DateTime reference_fetched_at
         DateTime our_block_timestamp
-        DateTime reference_block_timestamp
         String our_url
         String reference_url
         String our_null_reason

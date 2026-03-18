@@ -80,7 +80,6 @@ function buildComparisonRecords(
             our_fetched_at: formatDateTime(ours.fetched_at),
             reference_fetched_at: formatDateTime(ref.fetched_at),
             our_block_timestamp: ours.block_timestamp ? formatDateTime(ours.block_timestamp) : null,
-            reference_block_timestamp: ref.block_timestamp ? formatDateTime(ref.block_timestamp) : null,
             our_url: ours.url,
             reference_url: ref.url,
             our_null_reason: ourEntry.null_reason,
