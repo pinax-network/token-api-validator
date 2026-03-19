@@ -44,7 +44,7 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/scheduler.ts` — croner-based cron scheduling
 - `src/utils/retry.ts` — Shared retry with exponential backoff
 - `src/utils/normalize.ts` — String normalization, `scaleDown` (raw → human-readable), `scaleUp` (human-readable → raw)
-- `src/providers/types.ts` — Shared interfaces (`Provider`, `ComparableEntry`, `ProviderResult`, `NullReason`, `TokenReference`) + `httpStatusToNullReason()`
+- `src/providers/types.ts` — Shared interfaces (`Provider`, `ComparableEntry`, `ProviderResult`, `NullReason`, `TokenReference`) + protocol-level error mappers (`httpStatusToNullReason()`, `rpcCodeToNullReason()`)
 - `tokens.json` — Reference token list (generated, committed)
 - `schema/` — ClickHouse SQL definitions (tables and views), executed by `init-db`
 - `scripts/` — One-off scripts (not part of runtime)
