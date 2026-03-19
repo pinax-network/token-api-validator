@@ -1,9 +1,16 @@
 import { type Address, createPublicClient, type Hex, hexToString, http } from 'viem';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
 import { getRpcUrl } from '../registry.js';
 import { scaleDown } from '../utils/normalize.js';
-import type { ComparableEntry, Provider, ProviderResult } from './types.js';
+import {
+    type ComparableEntry,
+    httpStatusToNullReason,
+    type NullReason,
+    type Provider,
+    type ProviderResult,
+} from './types.js';
 
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
@@ -28,6 +35,36 @@ const erc20Bytes32Abi = [
     { name: 'name', type: 'function', inputs: [], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
     { name: 'symbol', type: 'function', inputs: [], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
 ] as const;
+
+/** Extract HTTP status from a viem HttpRequestError. */
+export function parseViemStatus(error: unknown): number | null {
+    if (error && typeof error === 'object' && 'status' in error) {
+        const status = (error as { status: unknown }).status;
+        if (typeof status === 'number') return status;
+    }
+    return null;
+}
+
+/** Map a rejected Promise result to a NullReason using HTTP status when available. */
+function reasonFromRejection(error: unknown): NullReason {
+    const status = parseViemStatus(error);
+    return status ? httpStatusToNullReason(status) : 'server_error';
+}
+
+/** Strip the API key path segment from a Pinax RPC URL for safe storage. */
+export function stripRpcApiKey(url: string): string {
+    return url.replace(/\/v1\/[a-f0-9]+\/?/, '/');
+}
+
+/** Redact any Pinax RPC API key from an error before it leaves the provider. */
+function sanitizeError(error: unknown): Error {
+    if (error instanceof Error) {
+        const sanitized = new Error(stripRpcApiKey(error.message));
+        sanitized.stack = error.stack ? stripRpcApiKey(error.stack) : undefined;
+        return sanitized;
+    }
+    return new Error(stripRpcApiKey(String(error)));
+}
 
 /** Convert a bytes32 return (from pre-standard tokens like MKR/SAI) to a string. */
 export function bytes32ToString(raw: Hex): string {
@@ -71,7 +108,12 @@ export class RpcProvider implements Provider {
         });
         const address = contract as Address;
 
-        const resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
+        let resolvedBlock: bigint;
+        try {
+            resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
+        } catch (error) {
+            throw sanitizeError(error);
+        }
 
         const [nameResult, symbolResult, decimalsResult, totalSupplyResult, blockResult] = await Promise.allSettled([
             readStringField(client, address, 'name', resolvedBlock),
@@ -84,6 +126,7 @@ export class RpcProvider implements Provider {
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'metadata' }, responseTimeMs / 1000);
 
+        const storedUrl = stripRpcApiKey(rpcUrl);
         const blockTimestamp =
             blockResult.status === 'fulfilled' ? new Date(Number(blockResult.value.timestamp) * 1000) : null;
 
@@ -94,6 +137,7 @@ export class RpcProvider implements Provider {
             decimalsResult.status === 'rejected' &&
             totalSupplyResult.status === 'rejected'
         ) {
+            const reason = reasonFromRejection(nameResult.reason);
             providerRequests.inc({ provider: 'rpc', network, endpoint: 'metadata', status: 'error' });
             return {
                 domain: 'metadata',
@@ -101,46 +145,45 @@ export class RpcProvider implements Provider {
                     field: f,
                     entity: '',
                     value: null,
-                    null_reason: 'empty' as const,
+                    null_reason: reason,
                 })),
                 fetched_at: new Date(),
                 response_time_ms: responseTimeMs,
-                url: rpcUrl,
+                url: storedUrl,
                 provider: 'rpc',
                 block_timestamp: blockTimestamp,
             };
         }
 
+        /** Null reason for a metadata field: null if value present, classified error if rejected, 'empty' if fulfilled but no data. */
+        const nullReason = (value: unknown, result: PromiseSettledResult<unknown>): NullReason | null =>
+            value != null && value !== ''
+                ? null
+                : result.status === 'rejected'
+                  ? reasonFromRejection(result.reason)
+                  : 'empty';
+
         const entries: ComparableEntry[] = [];
 
-        // name
         const name = nameResult.status === 'fulfilled' ? nameResult.value : null;
-        entries.push({
-            field: 'name',
-            entity: '',
-            value: name || null,
-            null_reason: name ? null : reasonFromSettled(nameResult),
-        });
+        entries.push({ field: 'name', entity: '', value: name || null, null_reason: nullReason(name, nameResult) });
 
-        // symbol
         const symbol = symbolResult.status === 'fulfilled' ? symbolResult.value : null;
         entries.push({
             field: 'symbol',
             entity: '',
             value: symbol || null,
-            null_reason: symbol ? null : reasonFromSettled(symbolResult),
+            null_reason: nullReason(symbol, symbolResult),
         });
 
-        // decimals
         const decimals = decimalsResult.status === 'fulfilled' ? decimalsResult.value : null;
         entries.push({
             field: 'decimals',
             entity: '',
             value: decimals != null ? String(decimals) : null,
-            null_reason: decimals != null ? null : reasonFromSettled(decimalsResult),
+            null_reason: nullReason(decimals, decimalsResult),
         });
 
-        // total_supply
         let totalSupply: string | null = null;
         if (totalSupplyResult.status === 'fulfilled') {
             const raw = totalSupplyResult.value;
@@ -150,7 +193,7 @@ export class RpcProvider implements Provider {
             field: 'total_supply',
             entity: '',
             value: totalSupply,
-            null_reason: totalSupply != null ? null : reasonFromSettled(totalSupplyResult),
+            null_reason: nullReason(totalSupply, totalSupplyResult),
         });
 
         providerRequests.inc({ provider: 'rpc', network, endpoint: 'metadata', status: 'success' });
@@ -159,7 +202,7 @@ export class RpcProvider implements Provider {
             entries,
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
-            url: rpcUrl,
+            url: storedUrl,
             provider: 'rpc',
             block_timestamp: blockTimestamp,
         };
@@ -194,7 +237,12 @@ export class RpcProvider implements Provider {
         });
         const address = contract as Address;
 
-        const resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
+        let resolvedBlock: bigint;
+        try {
+            resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
+        } catch (error) {
+            throw sanitizeError(error);
+        }
 
         const [balanceResults, blockResult] = await Promise.all([
             Promise.allSettled(
@@ -214,9 +262,11 @@ export class RpcProvider implements Provider {
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'balance' }, responseTimeMs / 1000);
 
+        const storedUrl = stripRpcApiKey(rpcUrl);
         const blockTimestamp = blockResult ? new Date(Number(blockResult.timestamp) * 1000) : null;
 
         const entries: ComparableEntry[] = [];
+        const failureCounts = new Map<NullReason, number>();
         for (let i = 0; i < holders.length; i++) {
             const result = balanceResults[i];
             if (result?.status === 'fulfilled') {
@@ -227,13 +277,20 @@ export class RpcProvider implements Provider {
                     null_reason: null,
                 });
             } else {
+                const reason = reasonFromRejection(result?.reason);
+                failureCounts.set(reason, (failureCounts.get(reason) ?? 0) + 1);
                 entries.push({
                     field: 'balance',
                     entity: holders[i] as string,
                     value: null,
-                    null_reason: 'server_error',
+                    null_reason: reason,
                 });
             }
+        }
+
+        if (failureCounts.size > 0) {
+            const summary = [...failureCounts.entries()].map(([r, n]) => `${n} ${r}`).join(', ');
+            logger.warn(`RPC balanceOf failures for ${contract} on ${network}: ${summary}`);
         }
 
         const hasSuccesses = entries.some((e) => e.value !== null);
@@ -248,7 +305,7 @@ export class RpcProvider implements Provider {
             entries,
             fetched_at: new Date(),
             response_time_ms: responseTimeMs,
-            url: rpcUrl,
+            url: storedUrl,
             provider: 'rpc',
             block_timestamp: blockTimestamp,
         };
@@ -268,9 +325,4 @@ async function readStringField(
         const raw = await client.readContract({ address, abi: erc20Bytes32Abi, functionName, blockNumber });
         return bytes32ToString(raw);
     }
-}
-
-function reasonFromSettled(result: PromiseSettledResult<unknown>): 'empty' | 'server_error' {
-    if (result.status === 'fulfilled') return 'empty';
-    return 'server_error';
 }

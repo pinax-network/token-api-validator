@@ -10,6 +10,7 @@ mock.module('./config.js', () => ({
         tokenApiBaseUrl: 'https://token-api.thegraph.com',
         tokenApiJwt: 'test-jwt',
         etherscanApiKey: undefined,
+        pinaxRpcApiKey: undefined,
         cronSchedule: '0 */6 * * *',
         rateLimitMs: 500,
         retryMaxAttempts: 3,
