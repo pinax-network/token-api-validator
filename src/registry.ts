@@ -53,10 +53,15 @@ export function getChainId(network: string): number | null {
     return providerMap[network]?.chain_id ?? null;
 }
 
-/** Look up the best RPC URL for a network. Prefers Pinax RPCs, falls back to first available. */
+/** Look up the best RPC URL for a network. Prefers authenticated Pinax RPCs, falls back to first available. */
 export function getRpcUrl(network: string): string | null {
     const urls = providerMap[network]?.rpc_urls ?? [];
-    return urls.find((u) => u.includes('.rpc.service.pinax.network')) ?? urls[0] ?? null;
+    const pinaxUrl = urls.find((u) => u.includes('.rpc.service.pinax.network'));
+    if (pinaxUrl && config.pinaxRpcApiKey) {
+        const publicHost = pinaxUrl.replace('.rpc.service.pinax.network', '.rpc.pinax.network');
+        return `${publicHost.replace(/\/$/, '')}/v1/${config.pinaxRpcApiKey}/`;
+    }
+    return pinaxUrl ?? urls[0] ?? null;
 }
 
 /** Parse a chain ID from a CAIP-2 identifier (e.g. "eip155:1" → 1). */
