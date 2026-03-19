@@ -8,13 +8,16 @@ The reference set is the **top 500 coins by global market cap** from CoinGecko �
 
 ## Reference Providers
 
-| Provider | API key | Metadata fields | Balance fields |
-|----------|---------|-----------------|----------------|
-| Blockscout | No | name, symbol, decimals, total_supply | holder balances (top holders) |
-| Etherscan V2 | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
-| RPC | No | name, symbol, decimals, total_supply | holder balances (via `balanceOf`) |
+| Provider | Networks | API key | Metadata fields | Balance fields |
+|----------|----------|---------|-----------------|----------------|
+| Blockscout | EVM | No | name, symbol, decimals, total_supply | holder balances (top holders) |
+| Etherscan V2 | EVM | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
+| RPC | EVM | No | name, symbol, decimals, total_supply | holder balances (via `balanceOf`) |
+| Solscan | Solana | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
 
-Explorer URLs and RPC URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available providers are queried per network** — a single token may produce comparison rows from Blockscout, Etherscan, and RPC. Networks with no known provider are skipped.
+EVM explorer URLs and RPC URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available providers are queried per network** — a single token may produce comparison rows from multiple providers. Networks with no known provider are skipped.
+
+Solana addresses are Base58 and case-sensitive (no lowercasing). Solscan is currently the only reference provider for Solana.
 
 ### RPC — on-chain ground truth
 

@@ -5,11 +5,13 @@
  * Strategy:
  * 1. GET /coins/list?include_platform=true → all coins with platform addresses
  * 2. GET /coins/markets?order=market_cap_desc → top N by market cap (no category filter)
- * 3. Cross-reference: extract EVM platform addresses for our supported networks
+ * 3. Cross-reference: extract platform addresses for our supported networks
  * 4. Output flat array of { network, contract, symbol, name, coingecko_id }
  *
  * Usage: COINGECKO_API_KEY=xxx bun scripts/fetch-tokens.ts [--pages 2]
  */
+
+import { PLATFORM_TO_NETWORK } from '../src/registry.js';
 
 const API_KEY = process.env.COINGECKO_API_KEY;
 if (!API_KEY) {
@@ -21,18 +23,6 @@ const BASE = 'https://api.coingecko.com/api/v3';
 const HEADERS = { 'x-cg-demo-api-key': API_KEY };
 const PER_PAGE = 250;
 const RATE_LIMIT_MS = 6500;
-
-// CoinGecko platform name → Token API network ID
-const PLATFORM_TO_NETWORK: Record<string, string> = {
-    ethereum: 'mainnet',
-    'binance-smart-chain': 'bsc',
-    'polygon-pos': 'polygon',
-    avalanche: 'avalanche',
-    'arbitrum-one': 'arbitrum-one',
-    'optimistic-ethereum': 'optimism',
-    base: 'base',
-    unichain: 'unichain',
-};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -118,7 +108,7 @@ async function main() {
             const network = PLATFORM_TO_NETWORK[platform];
             if (!network || !address?.trim()) continue;
 
-            const key = `${network}:${address.toLowerCase()}`;
+            const key = network === 'solana' ? `${network}:${address}` : `${network}:${address.toLowerCase()}`;
             if (seen.has(key)) continue;
             seen.add(key);
 

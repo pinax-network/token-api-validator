@@ -1,6 +1,6 @@
 # Token API Validator
 
-Validation service that tracks the accuracy of [Token API](https://token-api.thegraph.com) data by comparing responses against reference providers (Etherscan, Blockscout, RPC).
+Validation service that tracks the accuracy of [Token API](https://token-api.thegraph.com) data by comparing responses against reference providers (Blockscout, Etherscan, RPC, Solscan).
 
 Runs on a schedule, stores results in ClickHouse, and exposes Prometheus metrics for Grafana dashboards.
 
@@ -134,6 +134,7 @@ Returns `404` if no completed runs exist.
 | `TOKEN_API_JWT` | **Yes** | — | Bearer JWT for Token API authentication ([quick start](https://thegraph.com/docs/en/token-api/quick-start/)) |
 | `ETHERSCAN_API_KEY` | No | — | Etherscan V2 paid API key (single key, works across all chains) |
 | `PINAX_RPC_API_KEY` | No | — | Pinax RPC API key (authenticates RPC requests, avoids rate limits) |
+| `SOLSCAN_API_KEY` | No | — | Solscan Pro API key (required for Solana reference provider) |
 | `COINGECKO_API_KEY` | No | — | CoinGecko API key (only used by `fetch-tokens` script, not at runtime) |
 | `CRON_SCHEDULE` | No | `0 */6 * * *` | Validation run cron schedule |
 | `RATE_LIMIT_MS` | No | `500` | Delay between provider requests within a network (ms) |
@@ -235,4 +236,4 @@ Also includes `accuracy_by_field` and `accuracy_by_network` views (same pattern 
 - `bun run fetch-tokens` — Refresh `tokens.json` from CoinGecko (top tokens by market cap)
 - `bun run init-db` — Create ClickHouse tables and views (idempotent)
 
-Blockscout URLs, chain IDs, and RPC URLs are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains.
+EVM provider URLs (Blockscout, RPC) are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains. Solana tokens are validated against the [Solscan Pro API](https://pro-api.solscan.io/pro-api-docs/v2.0).
