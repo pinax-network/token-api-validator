@@ -106,6 +106,12 @@ describe('stripRpcApiKey', () => {
         expect(stripRpcApiKey('https://mainnet.infura.io/v3/abc123')).toBe('https://mainnet.infura.io/v3/abc123');
     });
 
+    test('strips key but preserves Avalanche C-Chain path suffix', () => {
+        expect(stripRpcApiKey(`https://avalanche.rpc.pinax.network/v1/${DUMMY_KEY}/ext/bc/C/rpc`)).toBe(
+            'https://avalanche.rpc.pinax.network/ext/bc/C/rpc'
+        );
+    });
+
     test('leaves URLs without key path unchanged', () => {
         expect(stripRpcApiKey('https://arbone.rpc.service.pinax.network/')).toBe(
             'https://arbone.rpc.service.pinax.network/'

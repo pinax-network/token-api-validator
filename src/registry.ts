@@ -59,7 +59,10 @@ export function getRpcUrl(network: string): string | null {
     const pinaxUrl = urls.find((u) => u.includes('.rpc.service.pinax.network'));
     if (pinaxUrl && config.pinaxRpcApiKey) {
         const publicHost = pinaxUrl.replace('.rpc.service.pinax.network', '.rpc.pinax.network');
-        return `${publicHost.replace(/\/$/, '')}/v1/${config.pinaxRpcApiKey}/`;
+        const base = `${publicHost.replace(/\/$/, '')}/v1/${config.pinaxRpcApiKey}/`;
+        // Avalanche C-Chain requires a path suffix on the public endpoint
+        if (network === 'avalanche') return `${base}ext/bc/C/rpc`;
+        return base;
     }
     return pinaxUrl ?? urls[0] ?? null;
 }
