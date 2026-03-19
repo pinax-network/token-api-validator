@@ -11,7 +11,7 @@ import {
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
-import { getRpcUrl } from '../registry.js';
+import { getChainId, getRpcUrl } from '../registry.js';
 import { scaleDown } from '../utils/normalize.js';
 import {
     type ComparableEntry,
@@ -116,7 +116,7 @@ export class RpcProvider implements Provider {
     }
 
     supportsNetwork(network: string): boolean {
-        return getRpcUrl(network) !== null;
+        return getChainId(network) !== null && getRpcUrl(network) !== null;
     }
 
     async fetchMetadata(network: string, contract: string, blockNumber?: number | null): Promise<ProviderResult> {
