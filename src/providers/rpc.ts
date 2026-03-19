@@ -319,7 +319,8 @@ export class RpcProvider implements Provider {
         if (failureCounts.size > 0) {
             const summary = [...failureCounts.entries()].map(([r, n]) => `${n} ${r}`).join(', ');
             const firstErr = balanceResults.find((r) => r.status === 'rejected');
-            const detail = firstErr?.status === 'rejected' ? ` — ${stripRpcApiKey(String(firstErr.reason))}` : '';
+            const reason = firstErr?.status === 'rejected' ? firstErr.reason : undefined;
+            const detail = reason instanceof BaseError ? ` — ${reason.shortMessage}` : '';
             logger.warn(`RPC balanceOf failures for ${contract} on ${network}: ${summary}${detail}`);
         }
 
