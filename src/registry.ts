@@ -26,6 +26,7 @@ export const PLATFORM_TO_NETWORK: Record<string, string> = {
 // Registry network IDs that differ from Token API network IDs
 const REGISTRY_TO_NETWORK: Record<string, string> = {
     matic: 'polygon',
+    'solana-mainnet-beta': 'solana',
 };
 
 // Sensible defaults — used before first registry sync and as the canonical list of supported networks
@@ -38,6 +39,7 @@ const DEFAULTS: Record<string, NetworkProviders> = {
     optimism: { blockscout_url: 'https://optimism.blockscout.com/api', chain_id: 10, rpc_urls: [] },
     avalanche: { blockscout_url: null, chain_id: 43114, rpc_urls: [] },
     unichain: { blockscout_url: null, chain_id: 130, rpc_urls: [] },
+    solana: { blockscout_url: null, chain_id: null, rpc_urls: [] },
 };
 
 // Synced from registry at startup and before each validation run

@@ -11,6 +11,7 @@ mock.module('./config.js', () => ({
         tokenApiJwt: 'test-jwt',
         etherscanApiKey: undefined,
         pinaxRpcApiKey: undefined,
+        solscanApiKey: undefined,
         cronSchedule: '0 */6 * * *',
         rateLimitMs: 500,
         retryMaxAttempts: 3,
