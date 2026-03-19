@@ -3,7 +3,13 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
 import { withRetry } from '../utils/retry.js';
-import type { ComparableEntry, NullReason, Provider, ProviderResult } from './types.js';
+import {
+    type ComparableEntry,
+    httpStatusToNullReason,
+    type NullReason,
+    type Provider,
+    type ProviderResult,
+} from './types.js';
 
 const BATCH_LIMIT = 100;
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
@@ -26,6 +32,12 @@ export function isRetryableResult(result: unknown): boolean {
     const status = parseErrorStatus(result);
     if (status === null) return true; // network error — retry
     return status === 429 || status >= 500;
+}
+
+/** Classify a Token API SDK error into a NullReason. */
+export function classifySdkError(error: unknown): NullReason {
+    const status = parseErrorStatus(error);
+    return status ? httpStatusToNullReason(status) : 'server_error';
 }
 
 function errorEntries(fields: readonly string[], reason: NullReason): ComparableEntry[] {
@@ -99,7 +111,7 @@ export class TokenApiProvider implements Provider {
                 response_time_ms: responseTimeMs,
                 url,
                 provider: this.name,
-                entries: [{ field: 'balance', entity: '', value: null, null_reason: 'server_error' }],
+                entries: [{ field: 'balance', entity: '', value: null, null_reason: classifySdkError(error) }],
             };
         }
 
@@ -161,7 +173,7 @@ export class TokenApiProvider implements Provider {
                 response_time_ms: responseTimeMs,
                 url,
                 provider: this.name,
-                entries: errorEntries(METADATA_FIELDS, 'server_error'),
+                entries: errorEntries(METADATA_FIELDS, classifySdkError(error)),
             };
         }
 
