@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { parseEtherscanError } from './etherscan.js';
+import { EtherscanProvider, parseEtherscanError } from './etherscan.js';
+
+describe('EtherscanProvider', () => {
+    test('supportsNetwork returns false without API key', () => {
+        const provider = new EtherscanProvider();
+        // config.etherscanApiKey is undefined in test-preload
+        expect(provider.supportsNetwork('mainnet')).toBe(false);
+        expect(provider.supportsNetwork('solana')).toBe(false);
+    });
+});
 
 describe('parseEtherscanError', () => {
     test('missing API key', () => expect(parseEtherscanError('Missing/Invalid API Key')).toBe('forbidden'));

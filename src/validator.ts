@@ -5,6 +5,7 @@ import { runDuration, runsTotal, tokensChecked } from './metrics.js';
 import { BlockscoutProvider } from './providers/blockscout.js';
 import { EtherscanProvider } from './providers/etherscan.js';
 import { RpcProvider } from './providers/rpc.js';
+import { SolscanProvider } from './providers/solscan.js';
 import { TokenApiProvider } from './providers/token-api.js';
 import type { Provider, ProviderResult, TokenReference } from './providers/types.js';
 import { syncRegistry } from './registry.js';
@@ -219,7 +220,12 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         }
 
         const tokenApi = new TokenApiProvider();
-        const allProviders: Provider[] = [new BlockscoutProvider(), new EtherscanProvider(), new RpcProvider()];
+        const allProviders: Provider[] = [
+            new BlockscoutProvider(),
+            new EtherscanProvider(),
+            new SolscanProvider(),
+            new RpcProvider(),
+        ];
 
         const allRecords: ComparisonRecord[] = [];
         let totalErrors = 0;

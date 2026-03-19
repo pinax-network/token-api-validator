@@ -70,7 +70,7 @@ export class EtherscanProvider implements Provider {
     name = 'etherscan';
 
     supportsNetwork(network: string): boolean {
-        return getChainId(network) !== null;
+        return getChainId(network) !== null && !!config.etherscanApiKey;
     }
 
     private decimalsLookup = new Map<string, number>();
@@ -89,7 +89,7 @@ export class EtherscanProvider implements Provider {
             module: 'token',
             action: 'tokeninfo',
         };
-        if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
+        params.apikey = config.etherscanApiKey as string;
 
         const start = Date.now();
         const result = await this.callApi(network, params, 'metadata');
@@ -180,7 +180,7 @@ export class EtherscanProvider implements Provider {
             action: 'topholders',
             offset: '100',
         };
-        if (config.etherscanApiKey) params.apikey = config.etherscanApiKey;
+        params.apikey = config.etherscanApiKey as string;
 
         const start = Date.now();
         const result = await this.callApi(network, params, 'balance');
