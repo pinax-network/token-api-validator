@@ -1,4 +1,4 @@
-import { type EvmHoldersResponse, type EvmNetwork, type EvmTokensResponse, TokenAPI } from '@pinax/token-api';
+import { type EvmNetwork, type SvmNetwork, TokenAPI } from '@pinax/token-api';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
@@ -13,6 +13,36 @@ import {
 
 const BATCH_LIMIT = 100;
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
+
+/** Common shape for metadata items across EVM and SVM SDK responses. */
+interface TokenMetadataItem {
+    name: string | null;
+    symbol: string | null;
+    decimals: number | null;
+    circulating_supply: number;
+    last_update_block_num: number;
+    last_update_timestamp: number;
+}
+
+interface HolderEntry {
+    entity: string;
+    amount: string;
+    block_num: number;
+    timestamp: number;
+}
+
+interface VmConfig {
+    prefix: string;
+    param: string;
+    cacheKey: (address: string) => string;
+}
+
+const EVM: VmConfig = { prefix: 'evm', param: 'contract', cacheKey: (a) => a.toLowerCase() };
+const SVM: VmConfig = { prefix: 'svm', param: 'mint', cacheKey: (a) => a };
+
+function vmFor(network: string): VmConfig {
+    return network === 'solana' ? SVM : EVM;
+}
 
 /** Extract HTTP status from SDK error message (format: `API Error: {"status":429,...}`). */
 export function parseErrorStatus(error: unknown): number | null {
@@ -60,7 +90,8 @@ export class TokenApiProvider implements Provider {
     }
 
     async fetchMetadata(network: string, contract: string): Promise<ProviderResult> {
-        const key = `${network}:${contract.toLowerCase()}`;
+        const vm = vmFor(network);
+        const key = `${network}:${vm.cacheKey(contract)}`;
         const cached = this.metadataCache.get(key);
         if (cached) {
             this.metadataCache.delete(key);
@@ -77,10 +108,11 @@ export class TokenApiProvider implements Provider {
     async prefetchMetadata(network: string, contracts: string[]): Promise<void> {
         if (contracts.length === 0) return;
 
+        const vm = vmFor(network);
         if (contracts.length === 1) {
             const contract = contracts[0] as string;
             const result = await this.fetchMetadataSingle(network, contract);
-            this.metadataCache.set(`${network}:${contract.toLowerCase()}`, result);
+            this.metadataCache.set(`${network}:${vm.cacheKey(contract)}`, result);
             return;
         }
 
@@ -91,15 +123,40 @@ export class TokenApiProvider implements Provider {
     }
 
     async fetchBalances(network: string, contract: string): Promise<ProviderResult> {
-        const url = `${config.tokenApiBaseUrl}/v1/evm/holders?network=${network}&contract=${contract}&limit=100`;
+        const vm = vmFor(network);
+        const url = `${config.tokenApiBaseUrl}/v1/${vm.prefix}/holders?network=${network}&${vm.param}=${contract}&limit=100`;
+        const label = `token-api:balances:${network}:${contract}`;
 
         const start = Date.now();
-        let body: EvmHoldersResponse;
+        let holders: HolderEntry[];
         try {
-            body = await this.callWithRetry(
-                () => this.client.evm.tokens.getHolders({ network: network as EvmNetwork, contract, limit: 100 }),
-                `token-api:balances:${network}:${contract}`
-            );
+            const body =
+                network === 'solana'
+                    ? await this.callWithRetry(
+                          () =>
+                              this.client.svm.tokens.getHolders({
+                                  network: network as SvmNetwork,
+                                  mint: contract,
+                                  limit: 100,
+                              }),
+                          label
+                      )
+                    : await this.callWithRetry(
+                          () =>
+                              this.client.evm.tokens.getHolders({
+                                  network: network as EvmNetwork,
+                                  contract,
+                                  limit: 100,
+                              }),
+                          label
+                      );
+            // SVM uses `owner` (currently token account address — known upstream bug), EVM uses `address`
+            holders = (body.data ?? []).map((e) => ({
+                entity: 'owner' in e ? e.owner : e.address.toLowerCase(),
+                amount: e.amount,
+                block_num: e.last_update_block_num,
+                timestamp: e.last_update_timestamp,
+            }));
         } catch (error) {
             const responseTimeMs = Date.now() - start;
             providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
@@ -119,10 +176,10 @@ export class TokenApiProvider implements Provider {
         providerDuration.observe({ provider: 'token-api', endpoint: 'balance' }, responseTimeMs / 1000);
         providerRequests.inc({ provider: 'token-api', network, endpoint: 'balance', status: 'success' });
 
-        const entries: ComparableEntry[] = (body.data ?? []).map((entry) => ({
+        const entries: ComparableEntry[] = holders.map((h) => ({
             field: 'balance',
-            entity: entry.address.toLowerCase(),
-            value: entry.amount,
+            entity: h.entity,
+            value: h.amount,
             null_reason: null,
         }));
 
@@ -137,7 +194,7 @@ export class TokenApiProvider implements Provider {
             };
         }
 
-        const firstEntry = body.data[0];
+        const first = holders[0] as HolderEntry;
         return {
             domain: 'balance',
             entries,
@@ -145,28 +202,41 @@ export class TokenApiProvider implements Provider {
             response_time_ms: responseTimeMs,
             url,
             provider: this.name,
-            block_number: firstEntry?.last_update_block_num ?? null,
-            block_timestamp: firstEntry?.last_update_timestamp
-                ? new Date(firstEntry.last_update_timestamp * 1000)
-                : null,
+            block_number: first.block_num ?? null,
+            block_timestamp: first.timestamp ? new Date(first.timestamp * 1000) : null,
         };
     }
 
-    private async fetchMetadataSingle(network: string, contract: string): Promise<ProviderResult> {
-        const url = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
+    private async fetchMetadataSingle(network: string, address: string): Promise<ProviderResult> {
+        const vm = vmFor(network);
+        const url = `${config.tokenApiBaseUrl}/v1/${vm.prefix}/tokens?network=${network}&${vm.param}=${address}`;
 
         const start = Date.now();
-        let body: EvmTokensResponse;
+        let body: { data: TokenMetadataItem[] };
         try {
-            body = await this.callWithRetry(
-                () => this.client.evm.tokens.getTokenMetadata({ network: network as EvmNetwork, contract }),
-                `token-api:${network}:${contract}`
-            );
+            body =
+                network === 'solana'
+                    ? await this.callWithRetry(
+                          () =>
+                              this.client.svm.tokens.getTokenMetadata({
+                                  network: network as SvmNetwork,
+                                  mint: address,
+                              }),
+                          `token-api:${network}:${address}`
+                      )
+                    : await this.callWithRetry(
+                          () =>
+                              this.client.evm.tokens.getTokenMetadata({
+                                  network: network as EvmNetwork,
+                                  contract: address,
+                              }),
+                          `token-api:${network}:${address}`
+                      );
         } catch (error) {
             const responseTimeMs = Date.now() - start;
             providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
             providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
-            logger.warn(`Token API returned error for ${network}:${contract}: ${error}`);
+            logger.warn(`Token API returned error for ${network}:${address}: ${error}`);
             return {
                 domain: 'metadata',
                 fetched_at: new Date(),
@@ -183,7 +253,7 @@ export class TokenApiProvider implements Provider {
 
         const token = body.data?.[0];
         if (!token) {
-            logger.warn(`Token API returned empty data for ${network}:${contract}`);
+            logger.warn(`Token API returned empty data for ${network}:${address}`);
             return {
                 domain: 'metadata',
                 fetched_at: new Date(),
@@ -197,25 +267,46 @@ export class TokenApiProvider implements Provider {
         return this.buildResult(token, url, new Date(), responseTimeMs);
     }
 
-    private async fetchChunk(network: string, contracts: string[]): Promise<void> {
+    private async fetchChunk(network: string, addresses: string[]): Promise<void> {
+        const vm = vmFor(network);
         const start = Date.now();
-        let body: EvmTokensResponse;
+
+        let items: { key: string; meta: TokenMetadataItem }[];
+        const label = `token-api:${network}:batch(${addresses.length})`;
         try {
-            body = await this.callWithRetry(
-                () => this.client.evm.tokens.getTokenMetadata({ network: network as EvmNetwork, contract: contracts }),
-                `token-api:${network}:batch(${contracts.length})`
-            );
+            const body =
+                network === 'solana'
+                    ? await this.callWithRetry(
+                          () =>
+                              this.client.svm.tokens.getTokenMetadata({
+                                  network: network as SvmNetwork,
+                                  mint: addresses,
+                              }),
+                          label
+                      )
+                    : await this.callWithRetry(
+                          () =>
+                              this.client.evm.tokens.getTokenMetadata({
+                                  network: network as EvmNetwork,
+                                  contract: addresses,
+                              }),
+                          label
+                      );
+            items = (body.data ?? []).map((item) => ({
+                key: 'mint' in item ? item.mint : item.contract,
+                meta: item,
+            }));
         } catch (error) {
             const responseTimeMs = Date.now() - start;
             providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
             batchRequests.inc({ provider: 'token-api', network, status: 'error' });
             batchFallbacks.inc({ provider: 'token-api', network });
             logger.warn(
-                `Token API batch failed for ${network} (${contracts.length} contracts), falling back to individual: ${error}`
+                `Token API batch failed for ${network} (${addresses.length} tokens), falling back to individual: ${error}`
             );
-            for (const contract of contracts) {
-                const result = await this.fetchMetadataSingle(network, contract);
-                this.metadataCache.set(`${network}:${contract.toLowerCase()}`, result);
+            for (const address of addresses) {
+                const result = await this.fetchMetadataSingle(network, address);
+                this.metadataCache.set(`${network}:${vm.cacheKey(address)}`, result);
             }
             return;
         }
@@ -223,19 +314,19 @@ export class TokenApiProvider implements Provider {
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'token-api', endpoint: 'metadata' }, responseTimeMs / 1000);
         batchRequests.inc({ provider: 'token-api', network, status: 'success' });
-        batchSize.observe({ provider: 'token-api', network }, contracts.length);
+        batchSize.observe({ provider: 'token-api', network }, addresses.length);
 
         const fetched_at = new Date();
-        const itemByContract = new Map<string, (typeof body.data)[number]>();
-        for (const item of body.data ?? []) {
-            itemByContract.set(item.contract.toLowerCase(), item);
+        const itemByKey = new Map<string, TokenMetadataItem>();
+        for (const item of items) {
+            itemByKey.set(vm.cacheKey(item.key), item.meta);
         }
 
-        for (const contract of contracts) {
-            const key = contract.toLowerCase();
-            const cacheKey = `${network}:${key}`;
-            const individualUrl = `${config.tokenApiBaseUrl}/v1/evm/tokens?network=${network}&contract=${contract}`;
-            const item = itemByContract.get(key);
+        for (const address of addresses) {
+            const normalized = vm.cacheKey(address);
+            const cacheKey = `${network}:${normalized}`;
+            const individualUrl = `${config.tokenApiBaseUrl}/v1/${vm.prefix}/tokens?network=${network}&${vm.param}=${address}`;
+            const item = itemByKey.get(normalized);
 
             if (!item) {
                 providerRequests.inc({ provider: 'token-api', network, endpoint: 'metadata', status: 'error' });
@@ -271,7 +362,7 @@ export class TokenApiProvider implements Provider {
     }
 
     private buildResult(
-        token: EvmTokensResponse['data'][number],
+        token: TokenMetadataItem,
         url: string,
         fetched_at: Date,
         responseTimeMs: number
