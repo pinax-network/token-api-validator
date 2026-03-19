@@ -16,6 +16,7 @@ const configSchema = z.object({
     rateLimitMs: z.coerce.number().default(500),
     retryMaxAttempts: z.coerce.number().default(3),
     retryBaseDelayMs: z.coerce.number().default(1000),
+    rpcBatchSize: z.coerce.number().default(50),
     verbose: z.preprocess((val) => String(val).toLowerCase() === 'true', z.boolean()).default(false),
     prettyLogging: z.preprocess((val) => String(val).toLowerCase() === 'true', z.boolean()).default(false),
 });
@@ -37,6 +38,7 @@ export const config = configSchema.parse({
     rateLimitMs: process.env.RATE_LIMIT_MS,
     retryMaxAttempts: process.env.RETRY_MAX_ATTEMPTS,
     retryBaseDelayMs: process.env.RETRY_BASE_DELAY_MS,
+    rpcBatchSize: process.env.RPC_BATCH_SIZE,
     verbose: process.env.VERBOSE,
     prettyLogging: process.env.PRETTY_LOGGING,
 });

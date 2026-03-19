@@ -16,6 +16,7 @@ mock.module('./config.js', () => ({
         rateLimitMs: 500,
         retryMaxAttempts: 3,
         retryBaseDelayMs: 1000,
+        rpcBatchSize: 50,
         verbose: false,
         prettyLogging: false,
     },

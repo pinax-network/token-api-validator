@@ -140,6 +140,7 @@ Returns `404` if no completed runs exist.
 | `RATE_LIMIT_MS` | No | `500` | Delay between provider requests within a network (ms) |
 | `RETRY_MAX_ATTEMPTS` | No | `3` | Max retry attempts for failed requests |
 | `RETRY_BASE_DELAY_MS` | No | `1000` | Base delay for exponential backoff (ms) |
+| `RPC_BATCH_SIZE` | No | `50` | Max JSON-RPC calls per HTTP request |
 | `PORT` | No | `3000` | HTTP server port |
 | `VERBOSE` | No | `false` | Enable verbose logging |
 | `PRETTY_LOGGING` | No | `false` | Pretty-print log output |

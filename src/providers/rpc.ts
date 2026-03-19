@@ -105,7 +105,7 @@ export class RpcProvider implements Provider {
         if (!client) {
             client = createPublicClient({
                 transport: http(rpcUrl, {
-                    batch: { wait: 0 },
+                    batch: { wait: 0, batchSize: config.rpcBatchSize },
                     retryCount: config.retryMaxAttempts - 1,
                     retryDelay: config.retryBaseDelayMs,
                 }),
@@ -320,7 +320,14 @@ export class RpcProvider implements Provider {
             const summary = [...failureCounts.entries()].map(([r, n]) => `${n} ${r}`).join(', ');
             const firstErr = balanceResults.find((r) => r.status === 'rejected');
             const reason = firstErr?.status === 'rejected' ? firstErr.reason : undefined;
-            const detail = reason instanceof BaseError ? ` — ${reason.shortMessage}` : '';
+            let detail = '';
+            if (reason instanceof BaseError) {
+                const httpErr = reason.walk((e) => e instanceof HttpRequestError);
+                const status = httpErr instanceof HttpRequestError ? httpErr.status : undefined;
+                detail = status
+                    ? ` — HTTP ${status}: ${reason.details}`
+                    : ` — ${reason.shortMessage} (${reason.details})`;
+            }
             logger.warn(`RPC balanceOf failures for ${contract} on ${network}: ${summary}${detail}`);
         }
 
