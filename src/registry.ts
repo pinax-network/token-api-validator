@@ -19,7 +19,7 @@ export const PLATFORM_TO_NETWORK: Record<string, string> = {
     'optimistic-ethereum': 'optimism',
     base: 'base',
     unichain: 'unichain',
-    tron: 'tron',
+    // tron: 'tron', — pending TVM holder routes upstream
     solana: 'solana',
 };
 
@@ -39,7 +39,6 @@ const DEFAULTS: Record<string, NetworkProviders> = {
     optimism: { blockscout_url: 'https://optimism.blockscout.com/api', chain_id: 10, rpc_urls: [] },
     avalanche: { blockscout_url: null, chain_id: 43114, rpc_urls: [] },
     unichain: { blockscout_url: null, chain_id: 130, rpc_urls: [] },
-    tron: { blockscout_url: null, chain_id: null, rpc_urls: [] },
     solana: { blockscout_url: null, chain_id: null, rpc_urls: [] },
 };
 
