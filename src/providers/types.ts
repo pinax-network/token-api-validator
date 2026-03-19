@@ -41,12 +41,24 @@ export interface Provider {
     ): Promise<ProviderResult>;
 }
 
-/** Map an HTTP status code to a null_reason value. */
+/** Map an HTTP status code to a NullReason. Used by all providers that make HTTP requests. */
 export function httpStatusToNullReason(status: number): NullReason {
     if (status === 404) return 'not_found';
     if (status === 403) return 'forbidden';
     if (status === 429) return 'rate_limited';
     if (status === 504) return 'timeout';
+    return 'server_error';
+}
+
+/**
+ * Map a JSON-RPC error code to a NullReason.
+ *
+ * Codes per EIP-1474 (standard: -32700 to -32603, non-standard: -32000 to -32006).
+ * Code 3 is the execution reverted code used by eth_call.
+ */
+export function rpcCodeToNullReason(code: number): NullReason {
+    if (code === -32001) return 'not_found'; // Resource not found (e.g., block/state unavailable)
+    if (code === -32005) return 'rate_limited'; // Limit exceeded
     return 'server_error';
 }
 

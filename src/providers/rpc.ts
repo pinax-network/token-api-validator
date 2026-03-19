@@ -1,4 +1,13 @@
-import { type Address, createPublicClient, type Hex, hexToString, http } from 'viem';
+import {
+    type Address,
+    BaseError,
+    createPublicClient,
+    type Hex,
+    HttpRequestError,
+    hexToString,
+    http,
+    RpcRequestError,
+} from 'viem';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { providerDuration, providerRequests } from '../metrics.js';
@@ -10,6 +19,7 @@ import {
     type NullReason,
     type Provider,
     type ProviderResult,
+    rpcCodeToNullReason,
 } from './types.js';
 
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
@@ -36,19 +46,32 @@ const erc20Bytes32Abi = [
     { name: 'symbol', type: 'function', inputs: [], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
 ] as const;
 
-/** Extract HTTP status from a viem HttpRequestError. */
-export function parseViemStatus(error: unknown): number | null {
-    if (error && typeof error === 'object' && 'status' in error) {
-        const status = (error as { status: unknown }).status;
-        if (typeof status === 'number') return status;
-    }
-    return null;
-}
+/**
+ * Classify a viem error into a NullReason by walking the cause chain.
+ *
+ * Viem wraps errors in layers: ContractFunctionExecutionError → CallExecutionError → root cause.
+ * The root cause is either HttpRequestError (HTTP-level, has `.status`) or RpcRequestError
+ * (JSON-RPC-level, has `.code`). We use viem's `.walk(predicate)` to find the relevant layer.
+ */
+export function classifyViemError(error: unknown): NullReason {
+    if (error instanceof BaseError) {
+        const httpErr = error.walk((e) => e instanceof HttpRequestError);
+        if (httpErr instanceof HttpRequestError && httpErr.status) {
+            return httpStatusToNullReason(httpErr.status);
+        }
 
-/** Map a rejected Promise result to a NullReason using HTTP status when available. */
-function reasonFromRejection(error: unknown): NullReason {
-    const status = parseViemStatus(error);
-    return status ? httpStatusToNullReason(status) : 'server_error';
+        const rpcErr = error.walk((e) => e instanceof RpcRequestError);
+        if (rpcErr instanceof RpcRequestError) {
+            return rpcCodeToNullReason(rpcErr.code);
+        }
+    }
+
+    // Fallback for unwrapped HttpRequestError or non-viem errors
+    if (error instanceof HttpRequestError && error.status) {
+        return httpStatusToNullReason(error.status);
+    }
+
+    return 'server_error';
 }
 
 /** Strip the API key path segment from a Pinax RPC URL for safe storage. */
@@ -137,7 +160,7 @@ export class RpcProvider implements Provider {
             decimalsResult.status === 'rejected' &&
             totalSupplyResult.status === 'rejected'
         ) {
-            const reason = reasonFromRejection(nameResult.reason);
+            const reason = classifyViemError(nameResult.reason);
             providerRequests.inc({ provider: 'rpc', network, endpoint: 'metadata', status: 'error' });
             return {
                 domain: 'metadata',
@@ -160,7 +183,7 @@ export class RpcProvider implements Provider {
             value != null && value !== ''
                 ? null
                 : result.status === 'rejected'
-                  ? reasonFromRejection(result.reason)
+                  ? classifyViemError(result.reason)
                   : 'empty';
 
         const entries: ComparableEntry[] = [];
@@ -277,7 +300,7 @@ export class RpcProvider implements Provider {
                     null_reason: null,
                 });
             } else {
-                const reason = reasonFromRejection(result?.reason);
+                const reason = classifyViemError(result?.reason);
                 failureCounts.set(reason, (failureCounts.get(reason) ?? 0) + 1);
                 entries.push({
                     field: 'balance',
