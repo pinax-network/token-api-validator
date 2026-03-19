@@ -97,6 +97,23 @@ export function bytes32ToString(raw: Hex): string {
 /** Reads ERC-20 metadata directly from smart contracts via JSON-RPC `eth_call`. */
 export class RpcProvider implements Provider {
     name = 'rpc';
+    private clients = new Map<string, ReturnType<typeof createPublicClient>>();
+
+    /** Get or create a viem client for the given RPC URL. Reusing clients avoids connection churn that triggers 400s. */
+    private getClient(rpcUrl: string): ReturnType<typeof createPublicClient> {
+        let client = this.clients.get(rpcUrl);
+        if (!client) {
+            client = createPublicClient({
+                transport: http(rpcUrl, {
+                    batch: { wait: 0 },
+                    retryCount: config.retryMaxAttempts - 1,
+                    retryDelay: config.retryBaseDelayMs,
+                }),
+            });
+            this.clients.set(rpcUrl, client);
+        }
+        return client;
+    }
 
     supportsNetwork(network: string): boolean {
         return getRpcUrl(network) !== null;
@@ -122,13 +139,7 @@ export class RpcProvider implements Provider {
         }
 
         const start = Date.now();
-        const client = createPublicClient({
-            transport: http(rpcUrl, {
-                batch: { wait: 0 },
-                retryCount: config.retryMaxAttempts - 1,
-                retryDelay: config.retryBaseDelayMs,
-            }),
-        });
+        const client = this.getClient(rpcUrl);
         const address = contract as Address;
 
         let resolvedBlock: bigint;
@@ -251,13 +262,7 @@ export class RpcProvider implements Provider {
         }
 
         const start = Date.now();
-        const client = createPublicClient({
-            transport: http(rpcUrl, {
-                batch: { wait: 0 },
-                retryCount: config.retryMaxAttempts - 1,
-                retryDelay: config.retryBaseDelayMs,
-            }),
-        });
+        const client = this.getClient(rpcUrl);
         const address = contract as Address;
 
         let resolvedBlock: bigint;
