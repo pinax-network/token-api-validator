@@ -149,7 +149,7 @@ export class RpcProvider implements Provider {
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'metadata' }, responseTimeMs / 1000);
 
-        const storedUrl = stripRpcApiKey(rpcUrl);
+        const storedUrl = `${stripRpcApiKey(rpcUrl)}#contract=${contract}&block=${resolvedBlock}`;
         const blockTimestamp =
             blockResult.status === 'fulfilled' ? new Date(Number(blockResult.value.timestamp) * 1000) : null;
 
@@ -285,7 +285,7 @@ export class RpcProvider implements Provider {
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'balance' }, responseTimeMs / 1000);
 
-        const storedUrl = stripRpcApiKey(rpcUrl);
+        const storedUrl = `${stripRpcApiKey(rpcUrl)}#contract=${contract}&block=${resolvedBlock}`;
         const blockTimestamp = blockResult ? new Date(Number(blockResult.timestamp) * 1000) : null;
 
         const entries: ComparableEntry[] = [];
