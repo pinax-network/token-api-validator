@@ -1,4 +1,4 @@
-import { type EvmNetwork, type SvmNetwork, TokenAPI } from '@pinax/token-api';
+import { APIError, type EvmNetwork, type SvmNetwork, TokenAPI } from '@pinax/token-api';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { batchFallbacks, batchRequests, batchSize, providerDuration, providerRequests } from '../metrics.js';
@@ -44,30 +44,17 @@ function vmFor(network: string): VmConfig {
     return network === 'solana' ? SVM : EVM;
 }
 
-/** Extract HTTP status from SDK error message (format: `API Error: {"status":429,...}`). */
-export function parseErrorStatus(error: unknown): number | null {
-    const msg = error instanceof Error ? error.message : '';
-    const match = msg.match(/API Error: (\{.*\})/);
-    if (!match?.[1]) return null;
-    try {
-        return (JSON.parse(match[1]) as { status?: number }).status ?? null;
-    } catch {
-        return null;
-    }
-}
-
-/** shouldRetry predicate: retry if the result is a retryable error (429, 5xx, network). */
+/** shouldRetry predicate: retry on 429, 5xx, or network errors. */
 export function isRetryableResult(result: unknown): boolean {
     if (!(result instanceof Error)) return false;
-    const status = parseErrorStatus(result);
-    if (status === null) return true; // network error — retry
-    return status === 429 || status >= 500;
+    if (result instanceof APIError) return result.status === 429 || result.status >= 500;
+    return true; // network error — retry
 }
 
 /** Classify a Token API SDK error into a NullReason. */
 export function classifySdkError(error: unknown): NullReason {
-    const status = parseErrorStatus(error);
-    return status ? httpStatusToNullReason(status) : 'server_error';
+    if (error instanceof APIError) return httpStatusToNullReason(error.status);
+    return 'server_error';
 }
 
 function errorEntries(fields: readonly string[], reason: NullReason): ComparableEntry[] {
