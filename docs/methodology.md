@@ -13,17 +13,22 @@ The reference set is the **top 500 coins by global market cap** from CoinGecko �
 | Blockscout | EVM | No | name, symbol, decimals, total_supply | holder balances (top holders) |
 | Etherscan V2 | EVM | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
 | RPC | EVM | No | name, symbol, decimals, total_supply | holder balances (via `balanceOf`) |
+| Solana RPC | Solana | Yes (dRPC) | name, symbol, decimals, total_supply | holder balances (via `getTokenAccountBalance`) |
 | Solscan | Solana | Yes (paid) | name, symbol, decimals, total_supply | holder balances (top holders) |
 
 EVM explorer URLs and RPC URLs are resolved from [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json). **All available providers are queried per network** — a single token may produce comparison rows from multiple providers. Networks with no known provider are skipped.
 
-Solana addresses are Base58 and case-sensitive (no lowercasing). Solscan is currently the only reference provider for Solana.
+Solana addresses are Base58 and case-sensitive (no lowercasing).
 
 ### RPC — on-chain ground truth
 
 RPC reads ERC-20 metadata directly from smart contracts, providing on-chain ground truth for `name`, `symbol`, `decimals`, and `total_supply`. Unlike explorer APIs, these values come straight from the contract state at a known block.
 
 Since our Token API data pipeline itself ingests from RPC, comparing Token API vs RPC isolates pipeline issues (indexing bugs, transformation errors) from source disagreements. RPC reads are pinned to the same block as Token API's last indexed block, so any mismatch is a real pipeline defect — not a timing artifact.
+
+### Solana RPC — on-chain ground truth
+
+The Solana RPC provider serves the same role as EVM RPC but for Solana: reading on-chain state directly rather than from an indexed API. Metadata fields (name, symbol, decimals, total_supply) come from the SPL token mint and Metaplex Token Metadata accounts. Balances are checked per holder address provided by Token API, matching the EVM RPC "check provided list" pattern.
 
 ---
 
