@@ -23,19 +23,18 @@ const TOLERANCES: Record<string, FieldTolerance> = {
 
 type ProviderFetch = (provider: Provider) => Promise<ProviderResult>;
 
+type RunProgress = RunRecord & { total_tokens: number };
+
 let runInProgress = false;
-let currentRun: RunRecord | null = null;
+let currentRun: RunProgress | null = null;
 
 export function isRunning(): boolean {
     return runInProgress;
 }
 
-export function getProgress(): (RunRecord & { total_tokens: number }) | null {
-    if (!currentRun) return null;
-    return { ...currentRun, total_tokens: currentRunTotalTokens };
+export function getProgress(): RunProgress | null {
+    return currentRun;
 }
-
-let currentRunTotalTokens = 0;
 
 function formatDateTime(date: Date): string {
     return date.toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
@@ -197,13 +196,13 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
             throw new Error('tokens.json is empty');
         }
 
-        currentRunTotalTokens = tokens.length;
         currentRun = {
             run_id: runId,
             started_at: formatDateTime(startedAt),
             completed_at: null,
             trigger,
             tokens_checked: 0,
+            total_tokens: tokens.length,
             comparisons: 0,
             matches: 0,
             mismatches: 0,
@@ -318,6 +317,5 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
     } finally {
         runInProgress = false;
         currentRun = null;
-        currentRunTotalTokens = 0;
     }
 }
