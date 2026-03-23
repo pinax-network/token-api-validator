@@ -79,16 +79,6 @@ export function stripRpcApiKey(url: string): string {
     return url.replace(/\/v1\/[a-f0-9]+\/?/, '/');
 }
 
-/** Redact any Pinax RPC API key from an error before it leaves the provider. */
-function sanitizeError(error: unknown): Error {
-    if (error instanceof Error) {
-        const sanitized = new Error(stripRpcApiKey(error.message));
-        sanitized.stack = error.stack ? stripRpcApiKey(error.stack) : undefined;
-        return sanitized;
-    }
-    return new Error(stripRpcApiKey(String(error)));
-}
-
 /** Convert a bytes32 return (from pre-standard tokens like MKR/SAI) to a string. */
 export function bytes32ToString(raw: Hex): string {
     return hexToString(raw, { size: 32 }).replace(/\0/g, '');
@@ -146,12 +136,12 @@ export class RpcProvider implements Provider {
         try {
             resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
         } catch (error) {
-            throw sanitizeError(error);
+            throw this.sanitizeError(error);
         }
 
         const [nameResult, symbolResult, decimalsResult, totalSupplyResult, blockResult] = await Promise.allSettled([
-            readStringField(client, address, 'name', resolvedBlock),
-            readStringField(client, address, 'symbol', resolvedBlock),
+            this.readStringField(client, address, 'name', resolvedBlock),
+            this.readStringField(client, address, 'symbol', resolvedBlock),
             client.readContract({ address, abi: erc20Abi, functionName: 'decimals', blockNumber: resolvedBlock }),
             client.readContract({ address, abi: erc20Abi, functionName: 'totalSupply', blockNumber: resolvedBlock }),
             client.getBlock({ blockNumber: resolvedBlock }),
@@ -269,7 +259,7 @@ export class RpcProvider implements Provider {
         try {
             resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
         } catch (error) {
-            throw sanitizeError(error);
+            throw this.sanitizeError(error);
         }
 
         const [balanceResults, blockResult] = await Promise.all([
@@ -348,19 +338,29 @@ export class RpcProvider implements Provider {
             block_timestamp: blockTimestamp,
         };
     }
-}
 
-/** Read a string field with bytes32 fallback for pre-standard tokens (MKR, SAI). */
-async function readStringField(
-    client: ReturnType<typeof createPublicClient>,
-    address: Address,
-    functionName: 'name' | 'symbol',
-    blockNumber: bigint
-): Promise<string> {
-    try {
-        return await client.readContract({ address, abi: erc20Abi, functionName, blockNumber });
-    } catch {
-        const raw = await client.readContract({ address, abi: erc20Bytes32Abi, functionName, blockNumber });
-        return bytes32ToString(raw);
+    /** Redact any Pinax RPC API key from an error before it leaves the provider. */
+    private sanitizeError(error: unknown): Error {
+        if (error instanceof Error) {
+            const sanitized = new Error(stripRpcApiKey(error.message));
+            sanitized.stack = error.stack ? stripRpcApiKey(error.stack) : undefined;
+            return sanitized;
+        }
+        return new Error(stripRpcApiKey(String(error)));
+    }
+
+    /** Read a string field with bytes32 fallback for pre-standard tokens (MKR, SAI). */
+    private async readStringField(
+        client: ReturnType<typeof createPublicClient>,
+        address: Address,
+        functionName: 'name' | 'symbol',
+        blockNumber: bigint
+    ): Promise<string> {
+        try {
+            return await client.readContract({ address, abi: erc20Abi, functionName, blockNumber });
+        } catch {
+            const raw = await client.readContract({ address, abi: erc20Bytes32Abi, functionName, blockNumber });
+            return bytes32ToString(raw);
+        }
     }
 }

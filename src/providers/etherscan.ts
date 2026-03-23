@@ -236,19 +236,18 @@ export class EtherscanProvider implements Provider {
 
         try {
             const callStart = Date.now();
-            let lastBody: EtherscanResponse | undefined;
 
-            const res = await withRetry(
+            const { status, body } = await withRetry(
                 async () => {
-                    const r = await fetch(url);
-                    lastBody = (await r.json()) as EtherscanResponse;
-                    return r;
+                    const res = await fetch(url);
+                    const json = (await res.json()) as EtherscanResponse;
+                    return { status: res.status, ok: res.ok, body: json };
                 },
                 {
                     maxAttempts: config.retryMaxAttempts,
                     baseDelay: config.retryBaseDelayMs,
-                    shouldRetry: () => {
-                        const msg = String(lastBody?.result ?? '');
+                    shouldRetry: (result) => {
+                        const msg = String(result.body?.result ?? '');
                         return msg.includes('rate limit') || msg.includes('Max rate limit');
                     },
                 },
@@ -256,13 +255,11 @@ export class EtherscanProvider implements Provider {
             );
             providerDuration.observe({ provider: 'etherscan', endpoint }, (Date.now() - callStart) / 1000);
 
-            if (!res.ok) {
-                logger.warn(`${label}: HTTP ${res.status}`);
+            if (status !== 200) {
+                logger.warn(`${label}: HTTP ${status}`);
                 providerRequests.inc({ provider: 'etherscan', network, endpoint, status: 'error' });
-                return { ok: false, reason: httpStatusToNullReason(res.status), url: storedUrl };
+                return { ok: false, reason: httpStatusToNullReason(status), url: storedUrl };
             }
-
-            const body = lastBody as EtherscanResponse;
 
             if (body.status !== '1') {
                 logger.warn(`${label}: ${body.result}`);
