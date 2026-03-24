@@ -14,7 +14,7 @@ import {
     rpcCodeToNullReason,
 } from './types.js';
 
-const DRPC_SOLANA_URL = 'https://lb.drpc.org/ogrpc?network=solana';
+export const DRPC_SOLANA_URL = 'https://lb.drpc.org/ogrpc?network=solana';
 
 /**
  * Metaplex Token Metadata Program — the standard for on-chain name/symbol on Solana.

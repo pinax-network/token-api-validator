@@ -24,7 +24,7 @@ import {
 
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
-const erc20Abi = [
+export const erc20Abi = [
     { name: 'name', type: 'function', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
     { name: 'symbol', type: 'function', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
     { name: 'decimals', type: 'function', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
