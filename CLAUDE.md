@@ -19,7 +19,7 @@ bun run start            # production start
 bun run test             # run tests
 bun run typecheck        # tsc --noEmit
 bun run lint             # biome check
-bun run fetch-tokens     # refresh tokens.json from CoinGecko (needs COINGECKO_API_KEY)
+bun run fetch-tokens     # refresh tokens.json from CoinGecko + on-chain RPC (needs full .env)
 bun run init-db          # create ClickHouse tables and views (needs CH credentials)
 ```
 
@@ -47,7 +47,7 @@ Use `bun pm version <major|minor|patch>` to bump the version — it updates `pac
 - `src/utils/retry.ts` — Shared retry with exponential backoff
 - `src/utils/normalize.ts` — String normalization, `scaleDown` (raw → human-readable), `scaleUp` (human-readable → raw)
 - `src/providers/types.ts` — Shared interfaces (`Provider`, `ComparableEntry`, `ProviderResult`, `NullReason`, `TokenReference`) + protocol-level error mappers (`httpStatusToNullReason()`, `rpcCodeToNullReason()`)
-- `tokens.json` — Reference token list (generated, committed)
+- `tokens.json` — Reference token list with on-chain decimals (generated, committed)
 - `schema/` — ClickHouse SQL definitions (tables and views), executed by `init-db`
 - `scripts/` — One-off scripts (not part of runtime)
 

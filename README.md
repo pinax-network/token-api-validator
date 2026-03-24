@@ -235,7 +235,7 @@ Also includes `accuracy_by_field` and `accuracy_by_network` views (same pattern 
 
 ## Scripts
 
-- `bun run fetch-tokens` — Refresh `tokens.json` from CoinGecko (top tokens by market cap)
+- `bun run fetch-tokens` — Refresh `tokens.json` from CoinGecko + on-chain RPC (filters dead deployments, adds decimals)
 - `bun run init-db` — Create ClickHouse tables and views (idempotent)
 
 EVM provider URLs (Blockscout, RPC) are resolved via [The Graph Network Registry](https://networks-registry.thegraph.com/TheGraphNetworksRegistry.json), synced at startup and before each run. Etherscan uses the [V2 unified API](https://docs.etherscan.io/etherscan-v2) (`api.etherscan.io/v2/api?chainid=...`) — a single API key works across all supported chains. Solana tokens are validated against the [Solscan Pro API](https://pro-api.solscan.io/pro-api-docs/v2.0) and [dRPC](https://drpc.org/docs/solana-api) (on-chain RPC).
