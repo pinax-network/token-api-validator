@@ -9,7 +9,7 @@
         "@noble/curves": "1.9.1",
         "@noble/hashes": "1.8.0",
         "@pinax/graph-networks-registry": "^0.7.1",
-        "@pinax/token-api": "0.2.4",
+        "@pinax/token-api": "0.2.5",
         "bs58": "^6.0.0",
         "croner": "^9.0.0",
         "dotenv": "^17.2.1",
@@ -61,7 +61,7 @@
 
     "@pinax/graph-networks-registry": ["@pinax/graph-networks-registry@0.7.1", "", {}, "sha512-Gn2kXRiEd5COAaMY/aDCRO0V+zfb1uQKCu5HFPoWka+EsZW27AlTINA7JctYYYEMuCbjMia5FBOzskjgEvj6LA=="],
 
-    "@pinax/token-api": ["@pinax/token-api@0.2.4", "", { "dependencies": { "openapi-fetch": "^0.13.0" } }, "sha512-m5YerDfJ6oLsupNelo3JuuZo5h9CGmuukwDHaytnIvxaVrx1CNCg6RGDG6cBRUiNZp+z6QQ7Vb7013iLhouQ9Q=="],
+    "@pinax/token-api": ["@pinax/token-api@0.2.5", "", { "dependencies": { "openapi-fetch": "^0.13.0" } }, "sha512-Z2944c1RBi9KLecsabz8dH6WKkxxswTnJW77+hFUrImPrG29ccMwagLdhjK7/Eo/4zOiUuHXHHadekHKp85lNw=="],
 
     "@scure/base": ["@scure/base@1.2.6", "", {}, "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="],
 
