@@ -14,6 +14,7 @@ export interface ComparableEntry {
     entity: string;
     value: string | null;
     null_reason: NullReason | null;
+    block_number?: number | null;
 }
 
 /** Uniform result from any provider fetch (metadata or balances). */
@@ -37,7 +38,7 @@ export interface Provider {
         network: string,
         contract: string,
         holders?: string[],
-        blockNumber?: number | null
+        holderBlocks?: Map<string, number>
     ): Promise<ProviderResult>;
 }
 

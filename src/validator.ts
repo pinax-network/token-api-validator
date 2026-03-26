@@ -102,9 +102,10 @@ async function validateToken(
     // Populated after each Token API fetch; RPC closures read these via late binding
     let holders: string[] = [];
     let blockNumber: number | null = null;
+    let holderBlocks: Map<string, number> = new Map();
     const domains: ProviderFetch[] = [
         (p) => p.fetchMetadata(network, contract, blockNumber),
-        (p) => p.fetchBalances(network, contract, holders, blockNumber),
+        (p) => p.fetchBalances(network, contract, holders, holderBlocks),
     ];
 
     try {
@@ -121,6 +122,10 @@ async function validateToken(
 
             holders = ours.entries.filter((e) => e.entity).map((e) => e.entity);
             blockNumber = ours.block_number ?? null;
+            holderBlocks = new Map<string, number>();
+            for (const e of ours.entries) {
+                if (e.entity && e.block_number != null) holderBlocks.set(e.entity, e.block_number);
+            }
             const refs = await Promise.allSettled(references.map((ref) => fetchDomain(ref)));
 
             for (const ref of refs) {

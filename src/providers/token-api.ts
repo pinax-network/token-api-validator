@@ -168,6 +168,7 @@ export class TokenApiProvider implements Provider {
             entity: h.entity,
             value: h.amount,
             null_reason: null,
+            block_number: h.block_num,
         }));
 
         if (entries.length === 0) {

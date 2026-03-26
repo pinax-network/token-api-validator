@@ -236,7 +236,7 @@ export class RpcProvider implements Provider {
         network: string,
         contract: string,
         holders?: string[],
-        blockNumber?: number | null
+        holderBlocks?: Map<string, number>
     ): Promise<ProviderResult> {
         const rpcUrl = getRpcUrl(network);
         if (!rpcUrl || !holders || holders.length === 0) {
@@ -255,33 +255,39 @@ export class RpcProvider implements Provider {
         const client = this.getClient(rpcUrl);
         const address = contract as Address;
 
-        let resolvedBlock: bigint;
-        try {
-            resolvedBlock = blockNumber != null ? BigInt(blockNumber) : await client.getBlockNumber();
-        } catch (error) {
-            throw this.sanitizeError(error);
+        const needsFallback = !holderBlocks || holders.some((h) => !holderBlocks.has(h));
+        let fallbackBlock: bigint | undefined;
+        if (needsFallback) {
+            try {
+                fallbackBlock = await client.getBlockNumber();
+            } catch (error) {
+                throw this.sanitizeError(error);
+            }
         }
 
-        const [balanceResults, blockResult] = await Promise.all([
-            Promise.allSettled(
-                holders.map((holder) =>
-                    client.readContract({
-                        address,
-                        abi: erc20BalanceAbi,
-                        functionName: 'balanceOf',
-                        args: [holder as Address],
-                        blockNumber: resolvedBlock,
-                    })
-                )
-            ),
-            client.getBlock({ blockNumber: resolvedBlock }).catch(() => null),
-        ]);
+        const holderBlockBigints = holders.map((holder) => {
+            const block = holderBlocks?.get(holder);
+            return block != null ? BigInt(block) : (fallbackBlock as bigint);
+        });
+
+        const balanceResults = await Promise.allSettled(
+            holders.map((holder, i) =>
+                client.readContract({
+                    address,
+                    abi: erc20BalanceAbi,
+                    functionName: 'balanceOf',
+                    args: [holder as Address],
+                    blockNumber: holderBlockBigints[i],
+                })
+            )
+        );
 
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'balance' }, responseTimeMs / 1000);
 
-        const storedUrl = `${stripRpcApiKey(rpcUrl)}#contract=${contract}&block=${resolvedBlock}`;
-        const blockTimestamp = blockResult ? new Date(Number(blockResult.timestamp) * 1000) : null;
+        const minBlock = holderBlockBigints.reduce((a, b) => (a < b ? a : b));
+        const maxBlock = holderBlockBigints.reduce((a, b) => (a > b ? a : b));
+        const storedUrl = `${stripRpcApiKey(rpcUrl)}#contract=${contract}&blocks=${minBlock}-${maxBlock}`;
 
         const entries: ComparableEntry[] = [];
         const failureCounts = new Map<NullReason, number>();
@@ -335,7 +341,7 @@ export class RpcProvider implements Provider {
             response_time_ms: responseTimeMs,
             url: storedUrl,
             provider: 'rpc',
-            block_timestamp: blockTimestamp,
+            block_timestamp: null,
         };
     }
 
