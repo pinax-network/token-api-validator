@@ -32,7 +32,7 @@ app.post('/trigger', async (c) => {
 });
 
 app.get('/status', (c) => {
-    return c.json({ running: isRunning(), progress: getProgress() });
+    return c.json(getProgress());
 });
 
 app.get('/report', async (c) => {

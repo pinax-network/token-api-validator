@@ -25,11 +25,10 @@ type ProviderFetch = (provider: Provider) => Promise<ProviderResult>;
 
 type RunProgress = RunRecord & { total_tokens: number };
 
-let runInProgress = false;
 let currentRun: RunProgress | null = null;
 
 export function isRunning(): boolean {
-    return runInProgress;
+    return currentRun != null && currentRun.completed_at == null;
 }
 
 export function getProgress(): RunProgress | null {
@@ -183,11 +182,9 @@ async function validateNetwork(
 }
 
 export async function runValidation(trigger: 'scheduled' | 'manual', runId = crypto.randomUUID()): Promise<RunRecord> {
-    if (runInProgress) {
+    if (isRunning()) {
         throw new Error('Validation run already in progress');
     }
-
-    runInProgress = true;
     const startedAt = new Date();
     const runAt = formatDateTime(startedAt);
 
@@ -286,6 +283,7 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         const duration = (completedAt.getTime() - startedAt.getTime()) / 1000;
         runDuration.observe(duration);
         runsTotal.inc({ trigger, status });
+        currentRun = { ...run, total_tokens: totalTokens };
         logger.info(
             `Run ${runId} completed in ${duration.toFixed(1)}s: ` +
                 `${numTokensChecked} tokens, ${counts.matches} matches, ${counts.mismatches} mismatches, ` +
@@ -317,10 +315,8 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         }
 
         runsTotal.inc({ trigger, status: 'failed' });
+        currentRun = { ...run, total_tokens: 0 };
         logger.error(`Run ${runId} failed:`, error);
         return run;
-    } finally {
-        runInProgress = false;
-        currentRun = null;
     }
 }
