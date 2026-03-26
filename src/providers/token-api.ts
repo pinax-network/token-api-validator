@@ -137,9 +137,9 @@ export class TokenApiProvider implements Provider {
                               }),
                           label
                       );
-            // SVM uses `owner` (currently token account address — known upstream bug), EVM uses `address`
+            // SVM uses `token_account` (ATA), EVM uses `address`
             holders = (body.data ?? []).map((e) => ({
-                entity: 'owner' in e ? e.owner : e.address.toLowerCase(),
+                entity: 'token_account' in e ? e.token_account : e.address.toLowerCase(),
                 amount: e.amount,
                 block_num: e.last_update_block_num,
                 timestamp: e.last_update_timestamp,
