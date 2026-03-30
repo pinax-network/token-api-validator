@@ -47,9 +47,33 @@ export async function insertRun(run: RunRecord): Promise<void> {
         );
         clickhouseWrites.inc({ status: 'success' });
         logger.info(`Inserted run ${run.run_id} (status=${run.status})`);
+
+        if (run.status !== 'failed') {
+            await materializeRegressions(run.started_at);
+        }
     } catch (error) {
         clickhouseWrites.inc({ status: 'error' });
         throw error;
+    }
+}
+
+async function materializeRegressions(runAt: string): Promise<void> {
+    try {
+        await withRetry(
+            async () => {
+                await client.command({
+                    query: `INSERT INTO regression_materialized
+                        SELECT * FROM regression_status
+                        WHERE run_at = {runAt:DateTime}`,
+                    query_params: { runAt },
+                });
+            },
+            { maxAttempts: config.retryMaxAttempts, baseDelay: config.retryBaseDelayMs },
+            'clickhouse:materializeRegressions'
+        );
+        logger.info(`Materialized regressions for run_at=${runAt}`);
+    } catch (error) {
+        logger.error('Failed to materialize regressions:', error);
     }
 }
 
@@ -142,9 +166,9 @@ async function getDomainReport(domain: string): Promise<DomainReport> {
         query: `SELECT network, contract, symbol, field, entity, provider,
                     our_value, reference_value, relative_diff, tolerance,
                     our_url, reference_url
-                FROM regression_status
+                FROM regression_materialized FINAL
                 WHERE domain = '${domain}'
-                    AND run_at = (SELECT max(run_at) FROM regression_status WHERE domain = '${domain}') AND is_regression
+                    AND run_at = (SELECT max(run_at) FROM regression_materialized WHERE domain = '${domain}') AND is_regression
                 ORDER BY network, symbol, field, entity, provider`,
         format: 'JSONEachRow',
     });

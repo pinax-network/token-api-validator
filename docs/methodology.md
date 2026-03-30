@@ -38,7 +38,7 @@ Metadata and Balance are two independent validation domains. Both share:
 - **Storage** — a single unified `comparisons` table with a `domain` column, plus domain-agnostic views that include `domain` in their GROUP BY / PARTITION BY
 - **Token set, reference providers, null reason semantics, and thresholds model**
 - **Views** — `comparison_enriched`, `run_metrics`, `accuracy_by_field`, `accuracy_by_network`, and `regression_status` all operate across domains; queries filter with `WHERE domain = '...'`
-- **Regression tracking** — independent per domain (partitioned by `domain` in the regression view)
+- **Regression tracking** — independent per domain (partitioned by `domain` in the regression view). The `regression_materialized` table caches pre-computed classifications after each run for dashboard performance; the `regression_status` view is the canonical methodology definition
 
 ### Entity column
 
