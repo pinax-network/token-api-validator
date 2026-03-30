@@ -166,7 +166,7 @@ async function getDomainReport(domain: string): Promise<DomainReport> {
         query: `SELECT network, contract, symbol, field, entity, provider,
                     our_value, reference_value, relative_diff, tolerance,
                     our_url, reference_url
-                FROM regression_materialized FINAL
+                FROM regression_materialized
                 WHERE domain = '${domain}'
                     AND run_at = (SELECT max(run_at) FROM regression_materialized WHERE domain = '${domain}') AND is_regression
                 ORDER BY network, symbol, field, entity, provider`,
