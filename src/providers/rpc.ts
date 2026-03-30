@@ -270,17 +270,22 @@ export class RpcProvider implements Provider {
             return block != null ? BigInt(block) : (fallbackBlock as bigint);
         });
 
-        const balanceResults = await Promise.allSettled(
-            holders.map((holder, i) =>
-                client.readContract({
-                    address,
-                    abi: erc20BalanceAbi,
-                    functionName: 'balanceOf',
-                    args: [holder as Address],
-                    blockNumber: holderBlockBigints[i],
-                })
-            )
-        );
+        const balanceResults: PromiseSettledResult<bigint>[] = [];
+        for (let i = 0; i < holders.length; i += config.rpcBatchSize) {
+            const chunk = holders.slice(i, i + config.rpcBatchSize);
+            const chunkResults = await Promise.allSettled(
+                chunk.map((holder, j) =>
+                    client.readContract({
+                        address,
+                        abi: erc20BalanceAbi,
+                        functionName: 'balanceOf',
+                        args: [holder as Address],
+                        blockNumber: holderBlockBigints[i + j],
+                    })
+                )
+            );
+            balanceResults.push(...chunkResults);
+        }
 
         const responseTimeMs = Date.now() - start;
         providerDuration.observe({ provider: 'rpc', endpoint: 'balance' }, responseTimeMs / 1000);

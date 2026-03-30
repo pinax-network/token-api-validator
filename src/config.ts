@@ -17,7 +17,7 @@ const configSchema = z.object({
     rateLimitMs: z.coerce.number().default(500),
     retryMaxAttempts: z.coerce.number().default(3),
     retryBaseDelayMs: z.coerce.number().default(1000),
-    rpcBatchSize: z.coerce.number().default(50),
+    rpcBatchSize: z.coerce.number().default(25),
     verbose: z.preprocess((val) => String(val).toLowerCase() === 'true', z.boolean()).default(false),
     prettyLogging: z.preprocess((val) => String(val).toLowerCase() === 'true', z.boolean()).default(false),
 });
