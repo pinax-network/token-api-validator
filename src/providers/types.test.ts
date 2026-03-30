@@ -17,7 +17,6 @@ describe('rpcCodeToNullReason', () => {
     test('-32603 (internal error) → server_error', () => expect(rpcCodeToNullReason(-32603)).toBe('server_error'));
     test('-32000 (invalid input) → server_error', () => expect(rpcCodeToNullReason(-32000)).toBe('server_error'));
     test('-32700 (parse error) → server_error', () => expect(rpcCodeToNullReason(-32700)).toBe('server_error'));
-    test('-32002 (resource unavailable) → server_error', () =>
-        expect(rpcCodeToNullReason(-32002)).toBe('server_error'));
+    test('-32002 (resource unavailable) → timeout', () => expect(rpcCodeToNullReason(-32002)).toBe('timeout'));
     test('3 (execution reverted) → server_error', () => expect(rpcCodeToNullReason(3)).toBe('server_error'));
 });

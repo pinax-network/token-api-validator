@@ -59,6 +59,7 @@ export function httpStatusToNullReason(status: number): NullReason {
  */
 export function rpcCodeToNullReason(code: number): NullReason {
     if (code === -32001) return 'not_found'; // Resource not found (e.g., block/state unavailable)
+    if (code === -32002) return 'timeout'; // Resource unavailable / request timed out
     if (code === -32005) return 'rate_limited'; // Limit exceeded
     return 'server_error';
 }
