@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 import { register } from './metrics.js';
 import { syncRegistry } from './registry.js';
 import { startScheduler } from './scheduler.js';
-import { getReport, ping as pingClickHouse } from './storage/clickhouse.js';
+import { getLastRunTime, getReport, ping as pingClickHouse } from './storage/clickhouse.js';
 import { getProgress, isRunning, runValidation } from './validator.js';
 
 const app = new Hono();
@@ -56,10 +56,10 @@ if (await pingClickHouse()) {
 }
 
 logger.info('Syncing network registry...');
-await syncRegistry();
+const [, lastRunAt] = await Promise.all([syncRegistry(), getLastRunTime()]);
 
 logger.info('Starting scheduler...');
-startScheduler();
+startScheduler(lastRunAt);
 
 logger.info(`Starting HTTP server on 0.0.0.0:${config.port}`);
 
