@@ -32,6 +32,22 @@ export async function ping(): Promise<boolean> {
     }
 }
 
+export async function getLastRunTime(): Promise<Date | null> {
+    const result = await withRetry(
+        () =>
+            client.query({
+                query: 'SELECT max(started_at) AS last FROM runs',
+                format: 'JSONEachRow',
+            }),
+        { maxAttempts: config.retryMaxAttempts, baseDelay: config.retryBaseDelayMs },
+        'clickhouse:getLastRunTime'
+    );
+    const row = (await result.json<{ last: string }>())[0];
+    // ClickHouse returns epoch zero for max() on empty table, not NULL
+    if (!row?.last || row.last === '1970-01-01 00:00:00') return null;
+    return new Date(`${row.last}Z`);
+}
+
 export async function insertRun(run: RunRecord): Promise<void> {
     try {
         await withRetry(
@@ -155,37 +171,46 @@ export interface Report {
     balance: DomainReport;
 }
 
-async function getDomainReport(domain: string): Promise<DomainReport> {
-    const metricsResult = await client.query({
-        query: `SELECT * FROM run_metrics WHERE domain = '${domain}' AND run_at = (SELECT max(run_at) FROM run_metrics WHERE domain = '${domain}')`,
-        format: 'JSONEachRow',
-    });
-    const metrics = (await metricsResult.json<DomainMetrics>())[0] ?? null;
+async function getDomainReport(domain: string, runAt: string): Promise<DomainReport> {
+    const params = { domain, runAt };
 
-    const regressionsResult = await client.query({
-        query: `SELECT network, contract, symbol, field, entity, provider,
-                    our_value, reference_value, relative_diff, tolerance,
-                    our_url, reference_url
-                FROM regression_materialized
-                WHERE domain = '${domain}'
-                    AND run_at = (SELECT max(run_at) FROM regression_materialized WHERE domain = '${domain}') AND is_regression
-                ORDER BY network, symbol, field, entity, provider`,
-        format: 'JSONEachRow',
-    });
-    const regressions = await regressionsResult.json<RegressionRow>();
+    const [metricsResult, regressionsResult, mismatchesResult] = await Promise.all([
+        client.query({
+            query: `SELECT * FROM run_metrics WHERE domain = {domain:String} AND run_at = {runAt:DateTime}`,
+            query_params: params,
+            format: 'JSONEachRow',
+        }),
+        client.query({
+            query: `SELECT network, contract, symbol, field, entity, provider,
+                        our_value, reference_value, relative_diff, tolerance,
+                        our_url, reference_url
+                    FROM regression_materialized
+                    WHERE domain = {domain:String}
+                        AND run_at = (SELECT max(run_at) FROM regression_materialized WHERE domain = {domain:String} AND run_at <= {runAt:DateTime})
+                        AND is_regression
+                    ORDER BY network, symbol, field, entity, provider`,
+            query_params: params,
+            format: 'JSONEachRow',
+        }),
+        client.query({
+            query: `SELECT network, contract, symbol, field, entity, provider,
+                        our_value, reference_value, relative_diff, tolerance,
+                        our_null_reason, reference_null_reason
+                    FROM comparison_enriched
+                    WHERE domain = {domain:String}
+                        AND run_at = {runAt:DateTime}
+                        AND is_comparable AND NOT is_match
+                    ORDER BY network, symbol, field, entity, provider`,
+            query_params: params,
+            format: 'JSONEachRow',
+        }),
+    ]);
 
-    const mismatchesResult = await client.query({
-        query: `SELECT network, contract, symbol, field, entity, provider,
-                    our_value, reference_value, relative_diff, tolerance,
-                    our_null_reason, reference_null_reason
-                FROM comparison_enriched
-                WHERE domain = '${domain}'
-                    AND run_at = (SELECT max(run_at) FROM comparison_enriched WHERE domain = '${domain}')
-                    AND is_comparable AND NOT is_match
-                ORDER BY network, symbol, field, entity, provider`,
-        format: 'JSONEachRow',
-    });
-    const mismatches = await mismatchesResult.json<MismatchRow>();
+    const [metrics, regressions, mismatches] = await Promise.all([
+        metricsResult.json<DomainMetrics>().then((rows) => rows[0] ?? null),
+        regressionsResult.json<RegressionRow>(),
+        mismatchesResult.json<MismatchRow>(),
+    ]);
 
     return { metrics, regressions, mismatches };
 }
@@ -198,7 +223,10 @@ export async function getReport(): Promise<Report | null> {
     const run = (await runResult.json<RunRecord>())[0];
     if (!run) return null;
 
-    const [metadata, balance] = await Promise.all([getDomainReport('metadata'), getDomainReport('balance')]);
+    const [metadata, balance] = await Promise.all([
+        getDomainReport('metadata', run.started_at),
+        getDomainReport('balance', run.started_at),
+    ]);
 
     return { run, metadata, balance };
 }
