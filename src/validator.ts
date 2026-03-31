@@ -149,7 +149,7 @@ async function validateNetwork(
     references: Provider[],
     runId: string,
     runAt: string
-): Promise<{ records: ComparisonRecord[]; errors: number }> {
+): Promise<{ errors: number }> {
     const network = (tokens[0] as TokenReference).network;
     const contracts = tokens.map((t) => t.contract);
     await tokenApi.prefetchMetadata(network, contracts);
@@ -178,7 +178,9 @@ async function validateNetwork(
         }
     }
 
-    return { records: allRecords, errors };
+    await insertComparisons(allRecords);
+
+    return { errors };
 }
 
 export async function runValidation(trigger: 'scheduled' | 'manual', runId = crypto.randomUUID()): Promise<RunRecord> {
@@ -230,9 +232,7 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
             new SolanaRpcProvider(),
         ];
 
-        const allRecords: ComparisonRecord[] = [];
         let totalErrors = 0;
-        let numTokensChecked = 0;
 
         for (const [network, networkTokens] of byNetwork) {
             const references = allProviders.filter((p) => p.supportsNetwork(network));
@@ -244,18 +244,14 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
 
             try {
                 const result = await validateNetwork(networkTokens, tokenApi, references, runId, runAt);
-                allRecords.push(...result.records);
                 totalErrors += result.errors;
                 const checked = networkTokens.length - result.errors;
                 tokensChecked.inc({ network }, checked);
-                numTokensChecked += checked;
             } catch (error) {
                 logger.error(`Network ${network} failed entirely:`, error);
                 totalErrors += networkTokens.length;
             }
         }
-
-        const counts = tallyCounts(allRecords);
 
         const totalTokens = tokens.length;
         let status: 'success' | 'partial' | 'failed';
@@ -263,16 +259,17 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         else if (totalErrors < totalTokens) status = 'partial';
         else status = 'failed';
 
-        await insertComparisons(allRecords);
-
         const completedAt = new Date();
         const run: RunRecord = {
             run_id: runId,
             started_at: formatDateTime(startedAt),
             completed_at: formatDateTime(completedAt),
             trigger,
-            tokens_checked: numTokensChecked,
-            ...counts,
+            tokens_checked: currentRun.tokens_checked,
+            comparisons: currentRun.comparisons,
+            matches: currentRun.matches,
+            mismatches: currentRun.mismatches,
+            nulls: currentRun.nulls,
             errors: totalErrors,
             status,
             error_detail: totalErrors > 0 ? `${totalErrors} token(s) failed validation` : null,
@@ -286,8 +283,8 @@ export async function runValidation(trigger: 'scheduled' | 'manual', runId = cry
         currentRun = { ...run, total_tokens: totalTokens };
         logger.info(
             `Run ${runId} completed in ${duration.toFixed(1)}s: ` +
-                `${numTokensChecked} tokens, ${counts.matches} matches, ${counts.mismatches} mismatches, ` +
-                `${counts.nulls} nulls, ${totalErrors} errors`
+                `${currentRun.tokens_checked} tokens, ${currentRun.matches} matches, ${currentRun.mismatches} mismatches, ` +
+                `${currentRun.nulls} nulls, ${totalErrors} errors`
         );
 
         return run;
