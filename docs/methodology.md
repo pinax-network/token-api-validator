@@ -59,10 +59,21 @@ The `domain` column tells you how to interpret `entity`. No prefix or structured
 
 | Field | Comparison | Notes |
 |-------|-----------|-------|
-| `name` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. |
+| `name` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. Provider-filtered — see below. |
 | `decimals` | Exact match | Immutable on-chain. Any mismatch is a real issue. |
-| `symbol` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. |
+| `symbol` | Exact match (normalized) | Lowercased, trimmed, whitespace collapsed before comparison. Provider-filtered — see below. |
 | `total_supply` | Numeric, ±1% tolerance | Reference providers return raw integers; providers normalize from raw to human-readable (via `scaleDown`) before comparison. |
+
+### Name/symbol provider filtering
+
+Token API returns curated names from CoinGecko for tokens in the reference set. These often differ from the on-chain `name()`/`symbol()` values (e.g., "Chainlink" vs "ChainLink Token"). Comparing curated names against on-chain values produces expected mismatches that are not data quality issues.
+
+To separate signals, the validator determines override status per token by comparing the `tokens.json` curated name against what the RPC provider returned (on-chain truth):
+
+- **Override tokens** (curated ≠ on-chain) — compared against non-RPC providers only (Blockscout, Etherscan, Solscan). Mismatches indicate disagreement between curated sources.
+- **Non-override tokens** (curated = on-chain) — compared against RPC only. Mismatches indicate pipeline defects.
+
+If no RPC data is available for a token (e.g., RPC error), all providers are compared as a fallback.
 
 ---
 

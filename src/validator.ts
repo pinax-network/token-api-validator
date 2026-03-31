@@ -12,6 +12,7 @@ import type { Provider, ProviderResult, TokenReference } from './providers/types
 import { syncRegistry } from './registry.js';
 import { insertComparisons, insertRun } from './storage/clickhouse.js';
 import { type ComparisonRecord, type RunRecord, tallyCounts } from './storage/types.js';
+import { normalizeString } from './utils/normalize.js';
 
 const TOLERANCES: Record<string, FieldTolerance> = {
     name: { type: 'exact', normalize: true },
@@ -20,6 +21,49 @@ const TOLERANCES: Record<string, FieldTolerance> = {
     total_supply: { type: 'relative', threshold: 0.01 },
     balance: { type: 'relative', threshold: 0.01 },
 };
+
+const RPC_PROVIDERS = new Set(['rpc', 'solana-rpc']);
+
+/**
+ * Detect which name/symbol fields have curated overrides by comparing
+ * tokens.json values against what RPC returned (on-chain truth).
+ * Returns null if no RPC data is available.
+ */
+export function detectOverriddenFields(
+    token: TokenReference,
+    refs: PromiseSettledResult<ProviderResult>[]
+): Set<string> | null {
+    const rpcResult = refs
+        .filter((r): r is PromiseFulfilledResult<ProviderResult> => r.status === 'fulfilled')
+        .map((r) => r.value)
+        .find((r) => RPC_PROVIDERS.has(r.provider));
+
+    if (!rpcResult) return null;
+
+    const curated: Record<string, string> = { name: token.name, symbol: token.symbol };
+    const overridden = new Set<string>();
+
+    for (const entry of rpcResult.entries) {
+        const curatedValue = curated[entry.field];
+        if (curatedValue && entry.value && normalizeString(curatedValue) !== normalizeString(entry.value)) {
+            overridden.add(entry.field);
+        }
+    }
+
+    return overridden;
+}
+
+/**
+ * For name/symbol: override tokens skip RPC (known divergence),
+ * non-override tokens skip non-RPC (cross-signal noise).
+ */
+export function shouldSkipComparison(field: string, provider: string, overriddenFields: Set<string> | null): boolean {
+    if (field !== 'name' && field !== 'symbol') return false;
+    if (!overriddenFields) return false;
+    const isRpc = RPC_PROVIDERS.has(provider);
+    const isOverridden = overriddenFields.has(field);
+    return isRpc ? isOverridden : !isOverridden;
+}
 
 type ProviderFetch = (provider: Provider) => Promise<ProviderResult>;
 
@@ -45,7 +89,8 @@ function buildComparisonRecords(
     ours: ProviderResult,
     ref: ProviderResult,
     runId: string,
-    runAt: string
+    runAt: string,
+    overriddenFields: Set<string> | null
 ): ComparisonRecord[] {
     const refByKey = new Map<string, (typeof ref.entries)[number]>();
     for (const entry of ref.entries) {
@@ -60,6 +105,8 @@ function buildComparisonRecords(
 
         const tolerance = TOLERANCES[ourEntry.field];
         if (!tolerance) continue;
+
+        if (shouldSkipComparison(ourEntry.field, ref.provider, overriddenFields)) continue;
 
         const result = compareField(ourEntry.field, ourEntry.value, refEntry.value, tolerance);
         records.push({
@@ -109,6 +156,7 @@ async function validateToken(
 
     try {
         const allRecords: ComparisonRecord[] = [];
+        let overriddenFields: Set<string> | null = null;
 
         for (const fetchDomain of domains) {
             let ours: ProviderResult;
@@ -127,12 +175,16 @@ async function validateToken(
             }
             const refs = await Promise.allSettled(references.map((ref) => fetchDomain(ref)));
 
+            if (ours.domain === 'metadata') {
+                overriddenFields = detectOverriddenFields(token, refs);
+            }
+
             for (const ref of refs) {
                 if (ref.status === 'rejected') {
                     logger.warn(`Reference fetch failed for ${token.symbol} on ${network}: ${ref.reason}`);
                     continue;
                 }
-                allRecords.push(...buildComparisonRecords(token, ours, ref.value, runId, runAt));
+                allRecords.push(...buildComparisonRecords(token, ours, ref.value, runId, runAt, overriddenFields));
             }
         }
 
