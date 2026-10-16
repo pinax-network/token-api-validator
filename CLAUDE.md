@@ -23,6 +23,14 @@ bun run fetch-tokens     # refresh tokens.json from CoinGecko + on-chain RPC (ne
 bun run init-db          # create ClickHouse tables and views (needs CH credentials)
 ```
 
+## Dependencies
+
+- Bun only: `package.json` sets `packageManager` and `devEngines`, so npm refuses to install or run scripts here. Use `bun install`, `bun run <script>` and `bun add <pkg>`.
+- CI and Docker install with `bun install --frozen-lockfile`. Commit `bun.lock` with every dependency change.
+- `bunfig.toml` lets `bun add` and `bun update` pick only versions published at least 5 days ago (`minimumReleaseAge = 432000`, in seconds) and saves exact versions. `.npmrc` sets `min-release-age=5` (in days) for any npm still in use.
+- Never download a tool on the fly (`npx <pkg>`, `bunx <pkg>`, `<pkg>@latest`): add it as a pinned devDependency and run `bunx --no-install <bin>`.
+- No Dependabot or Renovate: update dependencies by hand and review the `bun.lock` diff.
+
 ## Versioning
 
 Use `bun pm version <major|minor|patch>` to bump the version — it updates `package.json` and creates a git tag in one step. Push the tag with `git push --tags` after.
@@ -84,7 +92,7 @@ Providers normalize **data representation** (e.g. `scaleDown` converts raw integ
 
 ## Validation
 
-After any code change, run `bun test && bun run typecheck && bunx biome check .` to verify. Use `bunx biome check --write .` to auto-fix formatting.
+After any code change, run `bun test && bun run typecheck && bunx --no-install biome check .` to verify. Use `bunx --no-install biome check --write .` to auto-fix formatting.
 
 ## ClickHouse
 
