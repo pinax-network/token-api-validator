@@ -11,6 +11,8 @@ Built on [`@pinax/token-api`](https://github.com/pinax-network/token-api) and [`
 
 ## Quick Start
 
+Requires Bun >= 1.4.3 (`curl -fsSL https://bun.com/install | bash -s "bun-v1.4.3"`).
+
 ```bash
 # Install dependencies
 bun install
