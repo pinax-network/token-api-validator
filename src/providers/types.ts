@@ -45,7 +45,7 @@ export interface Provider {
 /** Map an HTTP status code to a NullReason. Used by all providers that make HTTP requests. */
 export function httpStatusToNullReason(status: number): NullReason {
     if (status === 404) return 'not_found';
-    if (status === 403) return 'forbidden';
+    if (status === 401 || status === 403) return 'forbidden';
     if (status === 429) return 'rate_limited';
     if (status === 504) return 'timeout';
     return 'server_error';

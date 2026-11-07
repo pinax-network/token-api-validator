@@ -76,7 +76,7 @@ export function classifyViemError(error: unknown): NullReason {
 
 /** Strip the API key path segment from a Pinax RPC URL for safe storage. */
 export function stripRpcApiKey(url: string): string {
-    return url.replace(/\/v1\/[a-f0-9]+\/?/, '/');
+    return url.replace(/\/v1\/[^/?#\s]+\/?/g, '/');
 }
 
 /** Convert a bytes32 return (from pre-standard tokens like MKR/SAI) to a string. */

@@ -21,6 +21,12 @@ describe('parseEtherscanError', () => {
                 'Free API access is not supported for this chain. Please upgrade your api plan for full chain coverage. https://etherscan.io/apis'
             )
         ).toBe('paid_plan_required'));
+    test('API Pro endpoint', () =>
+        expect(
+            parseEtherscanError(
+                'Sorry, it looks like you are trying to access an API Pro endpoint. Contact us to upgrade to API Pro.'
+            )
+        ).toBe('paid_plan_required'));
     test('global rate limit', () => expect(parseEtherscanError('Max rate limit reached')).toBe('rate_limited'));
     test('global rate limit with hint', () =>
         expect(parseEtherscanError('Max rate limit reached, please use API Key for higher rate limit')).toBe(

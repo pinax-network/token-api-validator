@@ -11,7 +11,8 @@ import {
     type ProviderResult,
 } from './types.js';
 
-const BATCH_LIMIT = 100;
+// The API rejects more than 50 contracts per metadata request.
+const BATCH_LIMIT = 50;
 const METADATA_FIELDS = ['name', 'symbol', 'decimals', 'total_supply'] as const;
 
 /** Common shape for metadata items across EVM and SVM SDK responses. */
@@ -44,16 +45,32 @@ function vmFor(network: string): VmConfig {
     return network === 'solana' ? SVM : EVM;
 }
 
+/**
+ * HTTP status of a Token API SDK error. The SDK raises `APIError` only for error bodies that carry a `message`; for
+ * other bodies, such as `{"error":{"status":401,"code":"unauthorized"}}`, it raises a plain Error whose message holds
+ * the body, so the status is read from there. Returns null for network errors.
+ */
+export function sdkErrorStatus(error: unknown): number | null {
+    if (error instanceof APIError) return error.status;
+    if (error instanceof Error) {
+        const m = error.message.match(/\\?"status\\?":\s*(\d{3})/);
+        if (m?.[1]) return Number(m[1]);
+    }
+    return null;
+}
+
 /** shouldRetry predicate: retry on 429, 5xx, or network errors. */
 export function isRetryableResult(result: unknown): boolean {
     if (!(result instanceof Error)) return false;
-    if (result instanceof APIError) return result.status === 429 || result.status >= 500;
+    const status = sdkErrorStatus(result);
+    if (status != null) return status === 429 || status >= 500;
     return true; // network error — retry
 }
 
 /** Classify a Token API SDK error into a NullReason. */
 export function classifySdkError(error: unknown): NullReason {
-    if (error instanceof APIError) return httpStatusToNullReason(error.status);
+    const status = sdkErrorStatus(error);
+    if (status != null) return httpStatusToNullReason(status);
     return 'server_error';
 }
 

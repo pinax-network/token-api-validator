@@ -44,7 +44,12 @@ interface TopHolderEntry {
 export function parseEtherscanError(result: string): NullReason {
     const lower = result.toLowerCase();
     if (lower.includes('invalid api key') || lower.includes('missing/invalid api key')) return 'forbidden';
-    if (lower.includes('not eligible') || lower.includes('not supported for this chain')) return 'paid_plan_required';
+    if (
+        lower.includes('not eligible') ||
+        lower.includes('not supported for this chain') ||
+        lower.includes('api pro endpoint')
+    )
+        return 'paid_plan_required';
     if (lower.includes('rate limit')) return 'rate_limited';
     if (lower.includes('timeout')) return 'timeout';
     if (

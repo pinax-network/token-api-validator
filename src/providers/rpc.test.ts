@@ -83,6 +83,22 @@ describe('classifyViemError', () => {
 });
 
 describe('stripRpcApiKey', () => {
+    test('strips a non-hex key', () => {
+        expect(stripRpcApiKey('https://eth.rpc.pinax.network/v1/Ab-9_xYz.KEY/')).toBe('https://eth.rpc.pinax.network/');
+    });
+
+    test('keeps the path after the key', () => {
+        expect(stripRpcApiKey('https://avalanche.rpc.pinax.network/v1/Ab-9_xYz/ext/bc/C/rpc')).toBe(
+            'https://avalanche.rpc.pinax.network/ext/bc/C/rpc'
+        );
+    });
+
+    test('strips the key from an error message', () => {
+        expect(stripRpcApiKey('HTTP request failed. URL: https://eth.rpc.pinax.network/v1/Ab-9_xYz/ Status: 429')).toBe(
+            'HTTP request failed. URL: https://eth.rpc.pinax.network/ Status: 429'
+        );
+    });
+
     test('strips key from Pinax RPC URL', () => {
         expect(stripRpcApiKey(`https://arbone.rpc.pinax.network/v1/${DUMMY_KEY}/`)).toBe(
             'https://arbone.rpc.pinax.network/'
