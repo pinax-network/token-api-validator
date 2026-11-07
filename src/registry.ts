@@ -55,18 +55,28 @@ export function getChainId(network: string): number | null {
     return providerMap[network]?.chain_id ?? null;
 }
 
-/** Look up the best RPC URL for a network. Prefers authenticated Pinax RPCs, falls back to first available. */
-export function getRpcUrl(network: string): string | null {
-    const urls = providerMap[network]?.rpc_urls ?? [];
-    const pinaxUrl = urls.find((u) => u.includes('.rpc.service.pinax.network'));
-    if (pinaxUrl && config.pinaxRpcApiKey) {
-        const publicHost = pinaxUrl.replace('.rpc.service.pinax.network', '.rpc.pinax.network');
-        const base = `${publicHost.replace(/\/$/, '')}/v1/${config.pinaxRpcApiKey}/`;
+const PINAX_RPC_HOST = /^https:\/\/[a-z0-9-]+\.rpc(\.service)?\.pinax\.network\/?$/;
+
+/**
+ * Pick the RPC URL for a network from its registry URLs. Prefers a Pinax RPC, listed by the registry either as
+ * `<id>.rpc.pinax.network` or `<id>.rpc.service.pinax.network`, wherever it appears in the list, and authenticates
+ * it when an API key is set. Otherwise falls back to the first URL.
+ */
+export function selectRpcUrl(network: string, urls: string[], apiKey: string | undefined): string | null {
+    const pinaxUrl = urls.find((u) => PINAX_RPC_HOST.test(u));
+    if (pinaxUrl && apiKey) {
+        const publicHost = pinaxUrl.replace('.rpc.service.pinax.network', '.rpc.pinax.network').replace(/\/$/, '');
+        const base = `${publicHost}/v1/${apiKey}/`;
         // Avalanche C-Chain requires a path suffix on the public endpoint
         if (network === 'avalanche') return `${base}ext/bc/C/rpc`;
         return base;
     }
     return pinaxUrl ?? urls[0] ?? null;
+}
+
+/** Look up the best RPC URL for a network. Prefers authenticated Pinax RPCs, falls back to first available. */
+export function getRpcUrl(network: string): string | null {
+    return selectRpcUrl(network, providerMap[network]?.rpc_urls ?? [], config.pinaxRpcApiKey);
 }
 
 /** Parse a chain ID from a CAIP-2 identifier (e.g. "eip155:1" → 1). */
